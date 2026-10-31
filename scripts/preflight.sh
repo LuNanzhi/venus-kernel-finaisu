@@ -1,0 +1,247 @@
+#!/bin/bash
+# preflight.sh - 在 susfs-setup.sh 之后运行，修补「结构性」问题
+#
+# 作用：
+#   1. 生成 5.4 缺失头文件的壳（minmax.h / hex.h / pgtable.h）
+#      -> 让 FinaSU 源码里的 #include 原样命中，不用逐个文件 sed
+#   2. 覆盖 ksu54_compat.h 为增强版（含 TWA_*、nofault 全系列）
+#   3. 通过 KernelSU/Kbuild 的 -include 全局注入，一次覆盖所有翻译单元
+#   4. 把 ksu_handle_devpts 的 stub 从 feature/sucompat.c 挪到 extension/
+#   5. 校验所有前置条件
+#
+# 用法：
+#   bash ci/scripts/susfs-setup.sh "$PWD/kernel"
+#   bash ci/scripts/preflight.sh   "$PWD/kernel"
+#
+# 幂等：可重复运行。
+set -euo pipefail
+
+KDIR="${1:?usage: preflight.sh <kernel-dir>}"
+SUDIR="$KDIR/KernelSU/kernel"
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+[ -d "$KDIR" ]  || { echo "ERROR: kernel dir $KDIR not found"; exit 1; }
+[ -d "$SUDIR" ] || { echo "ERROR: $SUDIR not found (clone FinaSU into KernelSU/ first)"; exit 1; }
+[ -f "$KDIR/include/linux/kernel.h" ] || { echo "ERROR: $KDIR is not a kernel tree"; exit 1; }
+
+echo "=== [preflight] 1/5: shim headers for 5.8+/5.10+/6.2+ includes ==="
+
+# 5.4 没有 include/linux/pgtable.h：壳指向 asm/pgtable.h
+if [ ! -f "$KDIR/include/linux/pgtable.h" ]; then
+  cat > "$KDIR/include/linux/pgtable.h" <<'EOF'
+/* ksu54 shim: <linux/pgtable.h> was split out of <asm/pgtable.h> in 5.8 */
+#ifndef _LINUX_PGTABLE_H
+#define _LINUX_PGTABLE_H
+#include <asm/pgtable.h>
+#endif
+EOF
+  echo "  created include/linux/pgtable.h"
+else
+  echo "  include/linux/pgtable.h already present (skip)"
+fi
+
+# 5.10 没有 include/linux/minmax.h：壳指向 kernel.h（5.4 的 min/max 在那里）
+if [ ! -f "$KDIR/include/linux/minmax.h" ]; then
+  cat > "$KDIR/include/linux/minmax.h" <<'EOF'
+/* ksu54 shim: <linux/minmax.h> was split out of <linux/kernel.h> in 5.10 */
+#ifndef _LINUX_MINMAX_H
+#define _LINUX_MINMAX_H
+#include <linux/kernel.h>
+#endif
+EOF
+  echo "  created include/linux/minmax.h"
+else
+  echo "  include/linux/minmax.h already present (skip)"
+fi
+
+# 6.2 没有 include/linux/hex.h：壳指向 kernel.h（bin2hex 声明在 kernel.h:638）
+if [ ! -f "$KDIR/include/linux/hex.h" ]; then
+  cat > "$KDIR/include/linux/hex.h" <<'EOF'
+/* ksu54 shim: <linux/hex.h> was split out of <linux/kernel.h> in 6.2 */
+#ifndef _LINUX_HEX_H
+#define _LINUX_HEX_H
+#include <linux/kernel.h>
+#endif
+EOF
+  echo "  created include/linux/hex.h"
+else
+  echo "  include/linux/hex.h already present (skip)"
+fi
+
+echo "=== [preflight] 2/5: install enhanced ksu54_compat.h ==="
+# 覆盖 susfs-setup.sh 生成的那一版（多了 TWA_* 和 nofault 全系列）
+cp "$SELF/ksu54-compat.h" "$KDIR/include/linux/ksu54_compat.h"
+echo "  installed $(wc -c < "$KDIR/include/linux/ksu54_compat.h") bytes"
+
+echo "=== [preflight] 3/5: inject -include into KernelSU/Kbuild ==="
+KB="$SUDIR/Kbuild"
+if grep -q 'ksu54_compat.h' "$KB" 2>/dev/null; then
+  echo "  already injected (skip)"
+else
+  # FinaSU 的 Kbuild 末尾有官方锚点：
+  #   # Keep a new line here!! Because someone may append config
+  # 直接追加即可，ccflags-y 是累积的。
+  cat >> "$KB" <<'EOF'
+
+# --- ksu54 preflight: global 5.4 API shims (see include/linux/ksu54_compat.h) ---
+ccflags-y += -include $(srctree)/include/linux/ksu54_compat.h
+EOF
+  echo "  appended -include to KernelSU/Kbuild"
+fi
+
+echo "=== [preflight] 4/5: relocate ksu_handle_devpts stub to extension/ ==="
+# 内核树 fs/devpts/inode.c:608-610 调用它，FinaSU 无实现。
+# susfs-setup.sh step 8 会在 feature/sucompat.c 尾部塞一个同符号 stub；
+# 先摘掉它，再在 extension/ 里放正式版 —— 否则两个同名定义链接报
+# "multiple definition of ksu_handle_devpts"。
+SCT="$SUDIR/feature/sucompat.c"
+if [ -f "$SCT" ] && grep -q 'ksu_handle_devpts' "$SCT"; then
+  python3 - "$SCT" <<'PYSTRIP'
+import sys
+p = sys.argv[1]
+lines = open(p, encoding='utf-8').read().splitlines()
+i = next((n for n, l in enumerate(lines) if 'ksu_handle_devpts(struct inode' in l), None)
+if i is not None:
+    j = i
+    while j > 0 and (lines[j-1].strip().startswith('*') or lines[j-1].strip().startswith('/*')):
+        j -= 1
+    k = i
+    while k < len(lines) and lines[k].strip() != '}':
+        k += 1
+    del lines[j:k+1]
+    open(p, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
+    print('  stripped old stub from sucompat.c (lines %d-%d)' % (j+1, k+1))
+else:
+    print('  no stub in sucompat.c')
+PYSTRIP
+else
+  echo "  no ksu_handle_devpts in sucompat.c (nothing to strip)"
+fi
+
+DEVSTUB="$SUDIR/extension/ksu54_devpts.c"
+if [ ! -f "$DEVSTUB" ]; then
+  cat > "$DEVSTUB" <<'EOF'
+/*
+ * ksu54_devpts.c - no-op ksu_handle_devpts() for the venus 5.4 vendor tree.
+ *
+ * fs/devpts/inode.c:608-610 carries a ReSukiSU-era hook:
+ *     #ifdef CONFIG_KSU
+ *     extern int ksu_handle_devpts(struct inode *);
+ *     ksu_handle_devpts(dentry->d_inode);
+ *     #endif
+ * FinaSU 1.x has no implementation, so the vmlinux link dies with
+ * "undefined symbol: ksu_handle_devpts" whenever CONFIG_KSU=y.
+ *
+ * This is a genuine no-op: devpts-based su hiding is unavailable on 5.4,
+ * which is a known limitation, not something we can fake.
+ */
+#include <linux/fs.h>
+#include <linux/types.h>
+
+int __maybe_unused ksu_handle_devpts(struct inode *inode)
+{
+	(void)inode;
+	return 0;
+}
+EOF
+  echo "  created extension/ksu54_devpts.c"
+else
+  echo "  extension/ksu54_devpts.c exists (skip)"
+fi
+
+if ! grep -q 'ksu54_devpts.o' "$KB"; then
+  # 无条件编译：fs/devpts/inode.c 的调用点只受 CONFIG_KSU 控制
+  sed -i 's|^kernelsu-objs := core/init.o$|kernelsu-objs := core/init.o\nkernelsu-objs += extension/ksu54_devpts.o|' "$KB"
+  if ! grep -q 'ksu54_devpts.o' "$KB"; then
+    printf '\nkernelsu-objs += extension/ksu54_devpts.o\n' >> "$KB"
+  fi
+  echo "  registered in Kbuild"
+fi
+
+echo "=== [preflight] 5/6: retarget kernel_umount.c path_umount -> ksys_umount ==="
+# susfs-setup.sh 的 step 7 只认旧版 3 参数 ksu_umount_mnt()，master 早已
+# 改成 2 参数，锚点必然 miss 并 SystemExit —— 这里补上 master 版本。
+KUM="$SUDIR/feature/kernel_umount.c"
+if [ -f "$KUM" ]; then
+python3 - "$KUM" <<'PYUM'
+import sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+if 'ksu54_umount' in s:
+    print('  skipped (already retargeted)')
+else:
+    old_decl = 'extern int path_umount(struct path *path, int flags);'
+    if old_decl not in s:
+        print('  WARN: path_umount decl anchor not found')
+        raise SystemExit(1)
+    s = s.replace(old_decl,
+        '/* ksu54_umount: 5.4 has no path_umount(); route through ksys_umount + d_path */\n'
+        'extern int ksys_umount(char __user *name, int flags);', 1)
+    old_fn = '''static void ksu_umount_mnt(struct path *path, int flags)
+{
+    int err = path_umount(path, flags);
+    if (err) {
+        pr_info_ratelimited("umount list entry failed: %d\\n", err);
+    }
+}'''
+    if old_fn not in s:
+        print('  WARN: ksu_umount_mnt 2-arg body anchor not found')
+        raise SystemExit(1)
+    new_fn = '''static void ksu_umount_mnt(struct path *path, int flags)
+{
+    int err;
+    char *dir = kmalloc(PATH_MAX, GFP_KERNEL);
+
+    if (!dir)
+        return;
+    {
+        char *p2 = d_path(path, dir, PATH_MAX);
+        if (!IS_ERR(p2)) {
+            mm_segment_t oldfs = get_fs();
+            set_fs(KERNEL_DS);
+            err = ksys_umount((char __user *)p2, flags);
+            set_fs(oldfs);
+            if (err)
+                pr_info_ratelimited("umount list entry failed: %d\\n", err);
+        }
+    }
+    kfree(dir);
+}'''
+    s = s.replace(old_fn, new_fn, 1)
+    open(p, 'w', encoding='utf-8').write(s)
+    print('  kernel_umount.c: path_umount -> ksys_umount (2-arg master API)')
+PYUM
+else
+  echo "  kernel_umount.c missing (skip)"
+fi
+
+echo "=== [preflight] 6/6: verification ==="
+fail=0
+chk() {
+  if eval "$2"; then echo "  OK   $1"; else echo "  FAIL $1"; fail=1; fi
+}
+chk "include/linux/pgtable.h shim"      "[ -f '$KDIR/include/linux/pgtable.h' ]"
+chk "include/linux/minmax.h shim"       "[ -f '$KDIR/include/linux/minmax.h' ]"
+chk "include/linux/hex.h shim"          "[ -f '$KDIR/include/linux/hex.h' ]"
+chk "ksu54_compat.h installed"          "grep -q 'TWA_RESUME' '$KDIR/include/linux/ksu54_compat.h'"
+chk "Kbuild -include injected"          "grep -q 'ksu54_compat.h' '$SUDIR/Kbuild'"
+chk "devpts stub compiled in"           "grep -q 'ksu54_devpts.o' '$SUDIR/Kbuild'"
+chk "devpts call site present"          "grep -q 'ksu_handle_devpts' '$KDIR/fs/devpts/inode.c'"
+chk "extension/susfs.c present"         "[ -f '$SUDIR/extension/susfs.c' ]"
+chk "kernel has built-in SUSFS v2.x"    "grep -q 'obj-\$(CONFIG_KSU_SUSFS) += susfs.o' '$KDIR/fs/Makefile'"
+chk "kernel_umount.c retargeted"         "grep -q 'ksu54_umount' '$SUDIR/feature/kernel_umount.c'"
+chk "susfs_def.h FinaSU aliases"         "grep -q 'susfs_set_current_proc_no_su' '$KDIR/include/linux/susfs_def.h'"
+chk "namespace.c exports do_mount"       "grep -q 'EXPORT_SYMBOL(do_mount)' '$KDIR/fs/namespace.c'"
+chk "su_mount_ns.c uses do_mount"        "grep -q 'do_mount' '$SUDIR/infra/su_mount_ns.c'"
+
+if [ "$fail" -ne 0 ]; then
+  echo "=== [preflight] FAILED ==="
+  exit 1
+fi
+
+echo "=== [preflight] DONE ==="
+echo "  提醒：make 命令行务必带上"
+echo "        KSU_SECOND_SIGNATURE_RELEASE=1 \\"
+echo "        KSU_EXPECTED_SIZE2=716 \\"
+echo "        KSU_EXPECTED_HASH2=<对应管理器的签名 hash>"
+echo "  否则 FINASU_TRUSTED_* 会回落到 slot1（KSU 官方签名），注入的 slot2 无效。"
