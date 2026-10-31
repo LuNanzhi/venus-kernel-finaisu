@@ -130,6 +130,11 @@ jobs:
             --enable KSU_DYNAMIC_MANAGER
           make -j$(nproc) O=out olddefconfig
 
+          # flask.h 是 security/selinux 目录构建时才生成的（out/security/selinux/flask.h），
+          # 但 kernelsu 的 objsec.h 会 include 它；先单独生成，避免竞态。
+          make -j$(nproc) O=out security/selinux/flask.h \
+            || make -j$(nproc) O=out security/selinux/
+
           echo "=== gate: building KSU objects ==="
           make -j$(nproc) O=out drivers/kernelsu/kernelsu.o \
             || make -j$(nproc) O=out drivers/kernelsu/
@@ -156,6 +161,10 @@ jobs:
             --enable KSU_DYNAMIC_MANAGER
 
           make -j$(nproc) O=out olddefconfig
+
+          # 与门禁同理：先确保 flask.h 已生成，避免与 selinux 目录构建竞态
+          make -j$(nproc) O=out security/selinux/flask.h \
+            || make -j$(nproc) O=out security/selinux/
 
           echo "=== SUSFS / KSU config check ==="
           grep -E 'CONFIG_KSU|CONFIG_SUSFS|CONFIG_KPROBES|CONFIG_THREAD_INFO' out/.config || true
