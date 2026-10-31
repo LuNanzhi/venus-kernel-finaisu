@@ -91,22 +91,58 @@ fi
 
 echo "=== [preflight] optional: disable preinit (DISABLE_PREINIT=true) ==="
 # 二分定位用：preinit 是 5.4 上最可疑的运行时路径。
-# preinit.h 在 -DKSU_NO_PREINIT 时给全部接口 static inline 空实现，
-# 但 upstream 只在「不编译 preinit.o」时才定义该宏（否则同一 TU 先声明
-# static inline 再定义会编译冲突），所以这里两个动作必须成对做：
-#   1) 从 Kbuild 摘掉 preinit/preinit.o 和 preinit/blob.o
-#   2) 追加 -DKSU_NO_PREINIT
+# 教训：只用 -DKSU_NO_PREINIT 不可靠——某些调用方（syscall_event_bridge.c、
+# ksud_integration.c、dispatch.c）自己 extern 声明或经 LTO 全程序分析后
+# 仍然产生外部引用，最终 vmlinux 链接报 undefined symbol。
+# 稳妥做法：提供一份真实的空实现 stub 文件，从 Kbuild 摘掉 preinit 对象。
 if [ "${DISABLE_PREINIT:-false}" = "true" ]; then
   sed -i 's|^kernelsu-objs += preinit/preinit\.o$||' "$KB"
   sed -i 's|^kernelsu-objs += preinit/blob\.o$||' "$KB"
-  if ! grep -q 'KSU_NO_PREINIT' "$KB"; then
-    cat >> "$KB" <<'EOF'
 
-# --- ksu54 preflight: preinit disabled (diagnostic variant) ---
-ccflags-y += -DKSU_NO_PREINIT
+  POF="$SUDIR/extension/ksu54_preinit_off.c"
+  if [ ! -f "$POF" ]; then
+    cat > "$POF" <<'EOF'
+/*
+ * ksu54_preinit_off.c - diagnostic build: preinit disabled.
+ * Real definitions (not macros): every caller of the preinit interface
+ * resolves against these no-ops, regardless of how it declares them.
+ */
+#include <linux/types.h>
+#include <asm/ptrace.h>
+
+void ksu_preinit_init(void)
+{
+}
+
+void ksu_preinit_exit(void)
+{
+}
+
+bool ksu_preinit_handle_execve(const char __user **filename_user,
+                               const char __user *const __user *argv_user,
+                               int orig_nr, struct pt_regs *regs, long *ret)
+{
+    return false;
+}
+
+void ksu_preinit_release(void)
+{
+}
+
+bool ksu_preinit_enabled_param(void)
+{
+    return false;
+}
 EOF
+    echo "  created extension/ksu54_preinit_off.c"
+  else
+    echo "  extension/ksu54_preinit_off.c exists (skip)"
   fi
-  echo "  preinit objects removed + -DKSU_NO_PREINIT appended"
+
+  if ! grep -q 'ksu54_preinit_off.o' "$KB"; then
+    printf '\nkernelsu-objs += extension/ksu54_preinit_off.o\n' >> "$KB"
+  fi
+  echo "  preinit objects removed + ksu54_preinit_off.o registered"
 else
   echo "  preinit left enabled (default)"
 fi
@@ -257,7 +293,7 @@ chk "namespace.c exports do_mount"       "grep -q 'EXPORT_SYMBOL(do_mount)' '$KD
 chk "su_mount_ns.c uses do_mount"        "grep -q 'do_mount' '$SUDIR/infra/su_mount_ns.c'"
 
 if [ "${DISABLE_PREINIT:-false}" = "true" ]; then
-  chk "preinit disabled (macro + objs)"   "grep -q 'KSU_NO_PREINIT' '$SUDIR/Kbuild' && ! grep -q 'preinit/preinit\.o' '$SUDIR/Kbuild'"
+  chk "preinit disabled (stub + objs removed)" "grep -q 'ksu54_preinit_off.o' '$SUDIR/Kbuild' && ! grep -q 'preinit/preinit\.o' '$SUDIR/Kbuild'"
 fi
 
 if [ "$fail" -ne 0 ]; then
