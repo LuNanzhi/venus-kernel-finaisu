@@ -89,6 +89,28 @@ EOF
   echo "  appended -include to KernelSU/Kbuild"
 fi
 
+echo "=== [preflight] optional: disable preinit (DISABLE_PREINIT=true) ==="
+# 二分定位用：preinit 是 5.4 上最可疑的运行时路径。
+# preinit.h 在 -DKSU_NO_PREINIT 时给全部接口 static inline 空实现，
+# 但 upstream 只在「不编译 preinit.o」时才定义该宏（否则同一 TU 先声明
+# static inline 再定义会编译冲突），所以这里两个动作必须成对做：
+#   1) 从 Kbuild 摘掉 preinit/preinit.o 和 preinit/blob.o
+#   2) 追加 -DKSU_NO_PREINIT
+if [ "${DISABLE_PREINIT:-false}" = "true" ]; then
+  sed -i 's|^kernelsu-objs += preinit/preinit\.o$||' "$KB"
+  sed -i 's|^kernelsu-objs += preinit/blob\.o$||' "$KB"
+  if ! grep -q 'KSU_NO_PREINIT' "$KB"; then
+    cat >> "$KB" <<'EOF'
+
+# --- ksu54 preflight: preinit disabled (diagnostic variant) ---
+ccflags-y += -DKSU_NO_PREINIT
+EOF
+  fi
+  echo "  preinit objects removed + -DKSU_NO_PREINIT appended"
+else
+  echo "  preinit left enabled (default)"
+fi
+
 echo "=== [preflight] 4/5: relocate ksu_handle_devpts stub to extension/ ==="
 # 内核树 fs/devpts/inode.c:608-610 调用它，FinaSU 无实现。
 # susfs-setup.sh step 8 会在 feature/sucompat.c 尾部塞一个同符号 stub；
@@ -233,6 +255,10 @@ chk "kernel_umount.c retargeted"         "grep -q 'ksu54_umount' '$SUDIR/feature
 chk "susfs_def.h FinaSU aliases"         "grep -q 'susfs_set_current_proc_no_su' '$KDIR/include/linux/susfs_def.h'"
 chk "namespace.c exports do_mount"       "grep -q 'EXPORT_SYMBOL(do_mount)' '$KDIR/fs/namespace.c'"
 chk "su_mount_ns.c uses do_mount"        "grep -q 'do_mount' '$SUDIR/infra/su_mount_ns.c'"
+
+if [ "${DISABLE_PREINIT:-false}" = "true" ]; then
+  chk "preinit disabled (macro + objs)"   "grep -q 'KSU_NO_PREINIT' '$SUDIR/Kbuild' && ! grep -q 'preinit/preinit\.o' '$SUDIR/Kbuild'"
+fi
 
 if [ "$fail" -ne 0 ]; then
   echo "=== [preflight] FAILED ==="

@@ -15,6 +15,11 @@ on:
         description: 'kernel source ref'
         required: false
         default: 'main'
+      disable_preinit:
+        description: 'Diagnostic: disable KSU preinit (bisect boot loop)'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   build:
@@ -53,7 +58,8 @@ jobs:
       - name: Preflight (5.4 shim headers, Kbuild injection, devpts, umount)
         run: |
           chmod +x ci/scripts/preflight.sh
-          bash ci/scripts/preflight.sh "$PWD/kernel"
+          DISABLE_PREINIT="${{ inputs.disable_preinit || 'false' }}" \
+            bash ci/scripts/preflight.sh "$PWD/kernel"
 
       - name: Free disk space
         run: |
