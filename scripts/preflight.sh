@@ -359,9 +359,12 @@ echo "=== [preflight] 5.5/6: fix rules.c 5.4 policy shim (audit: kfree-static + 
 #  a) KSU_POLICY_GET() 返回静态 shadow，apply_kernelsu_rules() 末尾却
 #     ksu_destroy_sepolicy(old_pol) -> kfree(静态内存) -> BUG -> panic，
 #     恰在 init 二阶段 execve 触发 -> MI logo 无限重启。
-#  b) KSU_POLICY_LOCK 锁 status_lock，随后 reset_avc_cache ->
-#     selinux_status_update_policyload 再锁同一 mutex -> 自死锁。
-# 修法：锁换成 ss->policy_rwlock 写锁；old_pol 的 destroy 只在 >=5.7 执行。
+#  b) 5.4 shim 的 KSU_POLICY_LOCK 锁 status_lock，随后 reset_avc_cache ->
+#     selinux_status_update_policyload 再锁同一 mutex -> 自死锁
+#     （5.7+ 用 policy_mutex 所以上游没这问题）。
+#     注意：本树 policy_rwlock 是 rwlock_t（自旋锁）不是 rw_semaphore，
+#     且 susfs_cache_sid 会内部 read_lock 它——所以锁不能用它，正确修法是
+#     在 <5.7 时跳过 status 通知（只是给用户空间看的 seqno bump）。
 RUL="$SUDIR/selinux/rules.c"
 if [ -f "$RUL" ]; then
 python3 - "$RUL" <<'PYRULE'
@@ -373,28 +376,6 @@ if 'ksu54_rules_fix' in s:
     raise SystemExit(0)
 
 ok = 0
-
-old_lock = '#define KSU_POLICY_LOCK() mutex_lock(&selinux_state.ss->status_lock)'
-new_lock = '#define KSU_POLICY_LOCK() down_write(&selinux_state.ss->policy_rwlock)'
-if old_lock in s:
-    s = s.replace(old_lock, new_lock, 1); ok += 1
-else:
-    print('  WARN: KSU_POLICY_LOCK anchor not found')
-
-old_unlock = '#define KSU_POLICY_UNLOCK() mutex_unlock(&selinux_state.ss->status_lock)'
-new_unlock = '#define KSU_POLICY_UNLOCK() up_write(&selinux_state.ss->policy_rwlock)'
-if old_unlock in s:
-    s = s.replace(old_unlock, new_unlock, 1); ok += 1
-else:
-    print('  WARN: KSU_POLICY_UNLOCK anchor not found')
-
-anchor_inc = '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 7, 0)\n#define KSU54_POLICY_FIELD'
-if anchor_inc in s:
-    s = s.replace(anchor_inc,
-        '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 7, 0)\n#include <linux/rwsem.h>\n#define KSU54_POLICY_FIELD', 1)
-    ok += 1
-else:
-    print('  WARN: rwsem include anchor not found')
 
 old_destroy = '    ksu_destroy_sepolicy(old_pol);'
 new_destroy = ('#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)) /* ksu54_rules_fix */\n'
@@ -408,9 +389,23 @@ if n >= 1:
 else:
     print('  WARN: destroy-old anchor not found')
 
+# 5.4 死锁修复：reset_avc_cache 里两处 status 通知（6.4+/else 分支各一）都
+# 在 <5.7 时跳过。selinux_status_update_policyload 内部拿 status_lock。
+old_status = '    selinux_status_update_policyload(&selinux_state, 0);'
+new_status = ('#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)) /* ksu54_status_guard */\n'
+              '    selinux_status_update_policyload(&selinux_state, 0);\n'
+              '#endif')
+n2 = s.count(old_status)
+if n2 >= 1:
+    s = s.replace(old_status, new_status)
+    ok += 1
+    print('  guarded %d status_update call site(s)' % n2)
+else:
+    print('  WARN: status_update anchor not found')
+
 open(p, 'w', encoding='utf-8').write(s)
-print('  rules.c fixed (%d/4 anchors)' % ok)
-if ok < 4:
+print('  rules.c fixed (%d/2 anchors)' % ok)
+if ok < 2:
     raise SystemExit(1)
 PYRULE
 else
@@ -435,8 +430,8 @@ chk "kernel_umount.c retargeted"         "grep -q 'ksu54_umount' '$SUDIR/feature
 chk "susfs_def.h FinaSU aliases"         "grep -q 'susfs_set_current_proc_no_su' '$KDIR/include/linux/susfs_def.h'"
 chk "namespace.c exports do_mount"       "grep -q 'EXPORT_SYMBOL(do_mount)' '$KDIR/fs/namespace.c'"
 chk "su_mount_ns.c uses do_mount"        "grep -q 'do_mount' '$SUDIR/infra/su_mount_ns.c'"
-chk "rules.c policy lock -> rw_sem"       "grep -q 'down_write(&selinux_state.ss->policy_rwlock)' '$SUDIR/selinux/rules.c'"
 chk "rules.c destroy-old guarded"         "grep -q 'ksu54_rules_fix' '$SUDIR/selinux/rules.c'"
+chk "rules.c status_update guarded"       "grep -q 'ksu54_status_guard' '$SUDIR/selinux/rules.c'"
 
 if [ "${DISABLE_PREINIT:-false}" = "true" ]; then
   chk "preinit disabled (stub + objs removed)" "grep -q 'ksu54_preinit_off.o' '$SUDIR/Kbuild' && ! grep -q 'preinit/preinit\.o' '$SUDIR/Kbuild'"
