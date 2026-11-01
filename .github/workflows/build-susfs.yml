@@ -6,7 +6,7 @@ on:
       ksu_ref:
         description: 'FinaSU git ref'
         required: false
-        default: 'master'
+        default: 'v1.4.2'
       kernel_repo:
         description: 'kernel source repo (owner/name)'
         required: false
