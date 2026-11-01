@@ -252,7 +252,7 @@ new_objs = '# ksu54_force_no_preinit: diagnostic build, preinit disabled\nccflag
 | `ksu_handle_devpts` 补的是 `return 0` | devpts 相关隐藏失效 |
 | NoMount 在非 GKI 5.4 上大概率不可用 | 挂载隐藏能力缺失 |
 | 10 项 SUSFS 全关 | root 隐藏能力基本为零 |
-
+| 需要一个稳定第三方ksud才能正常获取root权限 | 单刷ak3无法正常获取root权限，后续会修复该问题| 
 > **这些包只能用于调试，不建议作为日常使用内核。**
 
 ---
