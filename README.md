@@ -350,6 +350,49 @@ scripts/
 
 ---
 
+## AK3 自动安装 ksud
+
+FinaSU 在 Android 16 上取 root 只有两条路：
+
+1. app 内经 `SYS_reboot` magic 直连内核 —— **被 Android 16 的 seccomp 拦死**
+2. spawn `su` → 内核 sucompat hook 重定向到 `/data/adb/ksud` —— **要求该文件已存在**
+
+所以 `/data/adb/ksud` 是硬性前提。`build-susfs.yml` 在打包 AK3 时会自动完成两件事：
+
+| 步骤 | 动作 |
+|---|---|
+| 1 | 下载 FinaSU APK，解出 `lib/arm64-v8a/libksud.so`，作为 `ksud` 放进 zip 根目录 |
+| 2 | 把 `.github/scripts/ak3-ksud.sh` 追加到 `anykernel.sh` 末尾 |
+
+刷机时的行为（TWRP）：
+
+```
+/data 已解密？
+ ├─ 是 → 装到 /data/adb/ksud，建 /data/adb/ksu/bin/ksud 软链
+ └─ 否 → 不解密区一个字节都不写
+         ├─ ksud → /sdcard/Download/ksud
+         └─ 生成 /sdcard/Download/ksud-install-after-boot.sh（有 root 后一键装）
+日志：/sdcard/Download/ksud-ak3.log
+```
+
+判定方式：`/data/system/packages.xml` 可读，或 `/data/system/users` 存在 → 视为已解密。
+
+> ⚠️ 从 FinaSU 管理器 / KernelFlasher 这类 app 内刷写时，刷写器直接用 magiskboot 对 boot 分区打补丁，**不会执行 `update-binary`**，因此本脚本只在 TWRP 下生效。
+
+这套机制参考了 [@LuNanzhi](https://github.com/LuNanzhi) 成功设备的目录结构（`/data/adb/ksud` 实体 + `/data/adb/ksu/bin/ksud` 软链）；没有他那份完整 bugreport，根本看不出来缺的是这个文件。
+
+---
+
+## 贡献者
+
+| 贡献者 | 贡献 |
+|---|---|
+| [@cvbyisme](https://github.com/cvbyisme) | 项目发起、内核 fork 维护、CI 与刷机测试 |
+| [@LuNanzhi](https://github.com/LuNanzhi) | **关键贡献**。[venus-kernel-finaisu](https://github.com/LuNanzhi/venus-kernel-finaisu) 提供了 5.4 vendor 树跑通 FinaSU 的可行路线（preflight 预处理 + `ksu54_compat.h` 全局注入），并提供了成功设备的完整 KernelSU bugreport —— 本项目据此才定位到「seccomp 拦截 reboot syscall」和「`/data/adb/ksud` 缺失」两个根因 |
+| AI（Claude） | 代码编写、日志分析、文档撰写（按作者要求公开标注 AI 参与痕迹） |
+
+---
+
 ## 参考仓库
 
 | 仓库 | 用途 |
@@ -358,6 +401,7 @@ scripts/
 | [LyraVoid/FinaSU](https://github.com/LyraVoid/FinaSU) | 本项目使用的 root 方案 |
 | [MiYume0721/android_kernel_xiaomi_sm8350_miyume](https://github.com/MiYume0721/android_kernel_xiaomi_sm8350_miyume) | 内核源码上游（**已内置 KSU 集成**） |
 | [cvbyisme/android_kernel_xiaomi_sm8350_miyume](https://github.com/cvbyisme/android_kernel_xiaomi_sm8350_miyume) | 本项目的内核 fork |
+| [LuNanzhi/venus-kernel-finaisu](https://github.com/LuNanzhi/venus-kernel-finaisu) | **关键参考**：5.4 vendor 树跑通 FinaSU 的 preflight 方案 |
 | [osm0sis/AnyKernel3](https://github.com/osm0sis/AnyKernel3) | 刷机包模板 |
 | [ZyCromerZ/Clang](https://github.com/ZyCromerZ/Clang) | 工具链 |
 | [simonpunk/susfs4ksu](https://gitlab.com/simonpunk/susfs4ksu) | SUSFS（本项目已放弃） |
