@@ -388,7 +388,7 @@ FinaSU 在 Android 16 上取 root 只有两条路：
 | 贡献者 | 贡献 |
 |---|---|
 | [@cvbyisme](https://github.com/cvbyisme) | 项目发起、内核 fork 维护、CI 与刷机测试 |
-| [@LuNanzhi](https://github.com/LuNanzhi) | **关键贡献**。[venus-kernel-finaisu](https://github.com/LuNanzhi/venus-kernel-finaisu) 提供了 5.4 vendor 树跑通 FinaSU 的可行路线（preflight 预处理 + `ksu54_compat.h` 全局注入），并提供了成功设备的完整 KernelSU bugreport —— 本项目据此才定位到「seccomp 拦截 reboot syscall」和「`/data/adb/ksud` 缺失」两个根因 |
+| [@LuNanzhi](https://github.com/LuNanzhi)（仓库**共创者**，2026-11 受邀加入） | **关键贡献**。[venus-kernel-finaisu](https://github.com/LuNanzhi/venus-kernel-finaisu) 提供了 5.4 vendor 树跑通 FinaSU 的可行路线（preflight 预处理 + `ksu54_compat.h` 全局注入），并提供了成功设备的完整 KernelSU bugreport —— 本项目据此才定位到「seccomp 拦截 reboot syscall」和「`/data/adb/ksud` 缺失」两个根因 |
 | AI（Claude） | 代码编写、日志分析、文档撰写（按作者要求公开标注 AI 参与痕迹） |
 
 ---
