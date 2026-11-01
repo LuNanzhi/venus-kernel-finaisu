@@ -182,14 +182,25 @@ jobs:
 
           make -j$(nproc) O=out venus_defconfig
 
-          ./scripts/config --file out/.config \
-            --enable KPROBES --enable KSU --enable KSU_SUSFS \
-            --enable KSU_SUSFS_SUS_PATH --enable KSU_SUSFS_SUS_MOUNT \
-            --enable KSU_SUSFS_SUS_KSTAT --enable KSU_SUSFS_SPOOF_UNAME \
-            --enable KSU_SUSFS_ENABLE_LOG --enable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
-            --enable KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-            --enable KSU_SUSFS_OPEN_REDIRECT --enable KSU_SUSFS_SUS_MAP \
-            --enable KSU_DYNAMIC_MANAGER
+          if [ "${{ inputs.disable_susfs || 'false' }}" = "true" ]; then
+            ./scripts/config --file out/.config \
+              --enable KPROBES --enable KSU --enable KSU_DYNAMIC_MANAGER \
+              --disable KSU_SUSFS --disable KSU_SUSFS_SUS_PATH \
+              --disable KSU_SUSFS_SUS_MOUNT --disable KSU_SUSFS_SUS_KSTAT \
+              --disable KSU_SUSFS_SPOOF_UNAME --disable KSU_SUSFS_ENABLE_LOG \
+              --disable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+              --disable KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+              --disable KSU_SUSFS_OPEN_REDIRECT --disable KSU_SUSFS_SUS_MAP
+          else
+            ./scripts/config --file out/.config \
+              --enable KPROBES --enable KSU --enable KSU_SUSFS \
+              --enable KSU_SUSFS_SUS_PATH --enable KSU_SUSFS_SUS_MOUNT \
+              --enable KSU_SUSFS_SUS_KSTAT --enable KSU_SUSFS_SPOOF_UNAME \
+              --enable KSU_SUSFS_ENABLE_LOG --enable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+              --enable KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+              --enable KSU_SUSFS_OPEN_REDIRECT --enable KSU_SUSFS_SUS_MAP \
+              --enable KSU_DYNAMIC_MANAGER
+          fi
 
           make -j$(nproc) O=out olddefconfig
 
