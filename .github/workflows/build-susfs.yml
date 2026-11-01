@@ -20,6 +20,11 @@ on:
         required: false
         default: false
         type: boolean
+      disable_susfs:
+        description: 'Diagnostic: disable SUSFS entirely (bisect boot loop)'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   build:
@@ -59,6 +64,7 @@ jobs:
         run: |
           chmod +x ci/scripts/preflight.sh
           DISABLE_PREINIT="${{ inputs.disable_preinit || 'false' }}" \
+          DISABLE_SUSFS="${{ inputs.disable_susfs || 'false' }}" \
             bash ci/scripts/preflight.sh "$PWD/kernel"
 
       - name: Free disk space
@@ -116,24 +122,43 @@ jobs:
           echo "TCBIN=$TCDIR" >> $GITHUB_ENV
           "$TCDIR/clang" --version
 
+      # 变体二分用缓存：同一 (disable_preinit, disable_susfs) 组合复用编译缓存，
+      # 后续变体构建可从 ~28 分钟压到 ~10 分钟（只重编 KSU + 链接）。
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: venus-${{ inputs.disable_preinit }}-${{ inputs.disable_susfs }}
+          max-size: 2G
+
       # 快速语法门：只编 KSU 子系统，~3-5 分钟暴露编译错误，全量构建前的闸门。
       - name: Fast compile gate (KSU objects only)
         run: |
           cd kernel
-          export PATH="$TCBIN:$PATH"
+          export PATH="/usr/lib/ccache:$TCBIN:$PATH"
           export ARCH=arm64 SUBARCH=arm64 LLVM=1 LLVM_IAS=1
           export CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm
           export OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip READELF=llvm-readelf
 
           make -j$(nproc) O=out venus_defconfig
-          ./scripts/config --file out/.config \
-            --enable KPROBES --enable KSU --enable KSU_SUSFS \
-            --enable KSU_SUSFS_SUS_PATH --enable KSU_SUSFS_SUS_MOUNT \
-            --enable KSU_SUSFS_SUS_KSTAT --enable KSU_SUSFS_SPOOF_UNAME \
-            --enable KSU_SUSFS_ENABLE_LOG --enable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
-            --enable KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-            --enable KSU_SUSFS_OPEN_REDIRECT --enable KSU_SUSFS_SUS_MAP \
-            --enable KSU_DYNAMIC_MANAGER
+          if [ "${{ inputs.disable_susfs || 'false' }}" = "true" ]; then
+            ./scripts/config --file out/.config \
+              --enable KPROBES --enable KSU --enable KSU_DYNAMIC_MANAGER \
+              --disable KSU_SUSFS --disable KSU_SUSFS_SUS_PATH \
+              --disable KSU_SUSFS_SUS_MOUNT --disable KSU_SUSFS_SUS_KSTAT \
+              --disable KSU_SUSFS_SPOOF_UNAME --disable KSU_SUSFS_ENABLE_LOG \
+              --disable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+              --disable KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+              --disable KSU_SUSFS_OPEN_REDIRECT --disable KSU_SUSFS_SUS_MAP
+          else
+            ./scripts/config --file out/.config \
+              --enable KPROBES --enable KSU --enable KSU_SUSFS \
+              --enable KSU_SUSFS_SUS_PATH --enable KSU_SUSFS_SUS_MOUNT \
+              --enable KSU_SUSFS_SUS_KSTAT --enable KSU_SUSFS_SPOOF_UNAME \
+              --enable KSU_SUSFS_ENABLE_LOG --enable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+              --enable KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+              --enable KSU_SUSFS_OPEN_REDIRECT --enable KSU_SUSFS_SUS_MAP \
+              --enable KSU_DYNAMIC_MANAGER
+          fi
           make -j$(nproc) O=out olddefconfig
 
           # flask.h 是 security/selinux 目录构建时才生成的（out/security/selinux/flask.h），
@@ -149,7 +174,7 @@ jobs:
       - name: Build kernel
         run: |
           cd kernel
-          export PATH="$TCBIN:$PATH"
+          export PATH="/usr/lib/ccache:$TCBIN:$PATH"
           export ARCH=arm64 SUBARCH=arm64 LLVM=1 LLVM_IAS=1
           export CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm
           export OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip READELF=llvm-readelf
@@ -176,14 +201,27 @@ jobs:
           grep -E 'CONFIG_KSU|CONFIG_SUSFS|CONFIG_KPROBES|CONFIG_THREAD_INFO' out/.config || true
 
           MISSING=0
-          for sym in CONFIG_KSU CONFIG_KSU_SUSFS CONFIG_KSU_SUSFS_SUS_PATH \
-                     CONFIG_KSU_SUSFS_SUS_MOUNT CONFIG_KSU_SUSFS_SUS_MAP \
-                     CONFIG_KSU_SUSFS_OPEN_REDIRECT CONFIG_KPROBES; do
+          SYMS="CONFIG_KSU CONFIG_KPROBES"
+          if [ "${{ inputs.disable_susfs || 'false' }}" != "true" ]; then
+            SYMS="$SYMS CONFIG_KSU_SUSFS CONFIG_KSU_SUSFS_SUS_PATH \
+                  CONFIG_KSU_SUSFS_SUS_MOUNT CONFIG_KSU_SUSFS_SUS_MAP \
+                  CONFIG_KSU_SUSFS_OPEN_REDIRECT"
+          fi
+          for sym in $SYMS; do
             if ! grep -qx "$sym=y" out/.config; then
               echo "::error::$sym=y is missing from out/.config"
               MISSING=1
             fi
           done
+          if [ "${{ inputs.disable_susfs || 'false' }}" = "true" ]; then
+            RESIDUE=$(grep -E 'CONFIG_KSU_SUSFS' out/.config | grep '=y' || true)
+            if [ -n "$RESIDUE" ]; then
+              echo "::error::SUSFS residue: $RESIDUE"
+              MISSING=1
+            else
+              echo "SUSFS disabled: clean"
+            fi
+          fi
           if [ "$MISSING" -ne 0 ]; then
             echo "--- dependency diagnostics ---"
             grep -E '^CONFIG_(KPROBES|EXT4_FS|THREAD_INFO_IN_TASK|MODULES)' out/.config || true

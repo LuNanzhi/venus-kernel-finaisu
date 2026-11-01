@@ -147,6 +147,87 @@ else
   echo "  preinit left enabled (default)"
 fi
 
+echo "=== [preflight] optional: disable SUSFS (DISABLE_SUSFS=true) ==="
+# SUSFS 关闭时 extension/susfs.c 不参与编译，但 vendor 树在纯 CONFIG_KSU
+# 下仍引用 ksu_handle_* 系列符号（faccessat/stat/execveat/sys_read/
+# vfs_fstat/sys_reboot），必须补一份签名与调用点精确匹配的空实现，
+# 其中 sys_reboot 必须保持「-EINVAL 让真 reboot 流程继续」的语义。
+if [ "${DISABLE_SUSFS:-false}" = "true" ]; then
+  STUB="$SUDIR/extension/ksu54_stub.c"
+  if [ ! -f "$STUB" ]; then
+    cat > "$STUB" <<'STUBEOF'
+/*
+ * ksu54_stub.c - SUSFS-free stand-ins for the hooks FinaSU keeps inside
+ * extension/susfs.c. Signatures follow the vendor tree externs exactly.
+ */
+#include <linux/cred.h>
+#include <linux/fs.h>
+#include <linux/types.h>
+#include <linux/uaccess.h>
+
+#include "uapi/supercall.h"
+
+struct user_arg_ptr;
+
+/* fs/exec.c */
+int __maybe_unused ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp,
+                                       int *flags)
+{
+    return -EINVAL;
+}
+
+/* fs/open.c */
+int __maybe_unused ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags)
+{
+    return 0;
+}
+
+/* fs/stat.c */
+int __maybe_unused ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags)
+{
+    return 0;
+}
+
+void __maybe_unused ksu_handle_vfs_fstat(int fd, loff_t *kstat_size_ptr)
+{
+    (void)fd;
+    (void)kstat_size_ptr;
+}
+
+void __maybe_unused ksu_handle_sys_read(unsigned int fd)
+{
+    (void)fd;
+}
+
+/*
+ * kernel/reboot.c only falls through to the real reboot path on non-zero
+ * return. Return 0 for the KernelSU install magic pair, -EINVAL otherwise.
+ */
+int __maybe_unused ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg)
+{
+    (void)cmd;
+    (void)arg;
+
+    if (magic1 != (int)KSU_INSTALL_MAGIC1)
+        return -EINVAL;
+    if (magic2 == (int)KSU_INSTALL_MAGIC2)
+        return 0;
+    return -EINVAL;
+}
+STUBEOF
+    echo "  created extension/ksu54_stub.c"
+  else
+    echo "  extension/ksu54_stub.c exists (skip)"
+  fi
+
+  if ! grep -q 'ksu54_stub.o' "$KB"; then
+    printf '\n# ksu54 stub: SUSFS off, provide vendor tree hook symbols\nkernelsu-y += extension/ksu54_stub.o\n' >> "$KB"
+    echo "  registered ksu54_stub.o in Kbuild"
+  fi
+else
+  echo "  SUSFS left enabled (default)"
+fi
+
 echo "=== [preflight] 4/5: relocate ksu_handle_devpts stub to extension/ ==="
 # 内核树 fs/devpts/inode.c:608-610 调用它，FinaSU 无实现。
 # susfs-setup.sh step 8 会在 feature/sucompat.c 尾部塞一个同符号 stub；
@@ -294,6 +375,10 @@ chk "su_mount_ns.c uses do_mount"        "grep -q 'do_mount' '$SUDIR/infra/su_mo
 
 if [ "${DISABLE_PREINIT:-false}" = "true" ]; then
   chk "preinit disabled (stub + objs removed)" "grep -q 'ksu54_preinit_off.o' '$SUDIR/Kbuild' && ! grep -q 'preinit/preinit\.o' '$SUDIR/Kbuild'"
+fi
+
+if [ "${DISABLE_SUSFS:-false}" = "true" ]; then
+  chk "ksu54_stub registered (SUSFS off)"  "grep -q 'ksu54_stub.o' '$SUDIR/Kbuild'"
 fi
 
 if [ "$fail" -ne 0 ]; then
