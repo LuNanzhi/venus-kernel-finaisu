@@ -362,7 +362,7 @@ FinaSU 在 Android 16 上取 root 只有两条路：
 | 步骤 | 动作 |
 |---|---|
 | 1 | 下载 FinaSU APK，解出 `lib/arm64-v8a/libksud.so`，作为 `ksud` 放进 zip 根目录 |
-| 2 | 把 `.github/scripts/ak3-ksud.sh` 追加到 `anykernel.sh` 末尾 |
+| 2 | 把 `ci/scripts/ak3-ksud.sh` 追加到 `anykernel.sh` 末尾 |
 
 刷机时的行为（TWRP）：
 
