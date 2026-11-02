@@ -124,7 +124,7 @@ ccflags-y += -include $(srctree)/include/linux/ksu54_compat.h
 
 | Tag | 内容 |
 |---|---|
-| `ak3-ksud-v2` | FinaSU + AK3 内置 ksud（2026-11-02 实机验证） |
+| **[`ak3-ksud-v3`](https://github.com/cvbyisme/venus-kernel-finaisu/releases/tag/ak3-ksud-v3)** | FinaSU + AK3 内置 ksud，刷完即用（2026-11-02 实机验证） |
 | `susfs-test-1` / `susfs-test-2` | 早期 FinaSU + SUSFS 试验包 |
 | `pure-ak3-1` | 纯净内核（无 root），用于排查 |
 | `ak3-1` / `ksuns-5` | 更早的构建产物 |
