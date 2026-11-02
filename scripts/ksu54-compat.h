@@ -163,3 +163,4 @@ static inline int ksu54_copy_to_kernel_nofault(void *dst, const void *src,
  * ------------------------------------------------------------------ */
 
 #endif /* _KSU54_COMPAT_H */
+

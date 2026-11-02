@@ -452,3 +452,4 @@ echo "        KSU_SECOND_SIGNATURE_RELEASE=1 \\"
 echo "        KSU_EXPECTED_SIZE2=716 \\"
 echo "        KSU_EXPECTED_HASH2=<对应管理器的签名 hash>"
 echo "  否则 FINASU_TRUSTED_* 会回落到 slot1（KSU 官方签名），注入的 slot2 无效。"
+
