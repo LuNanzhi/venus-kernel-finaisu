@@ -285,7 +285,7 @@ jobs:
             echo "::warning::FinaSU APK download failed - AK3 will NOT contain ksud"
           fi
           # ksud 自动安装脚本（/data 已解密则直接装，否则只放 sdcard）
-          cat ../.github/scripts/ak3-ksud.sh >> anykernel.sh
+          cat ../ci/scripts/ak3-ksud.sh >> anykernel.sh
           sed -i "s/^kernel.string=.*/kernel.string=venus-FinaSU-SUSFS by cvby/" anykernel.sh
           sed -i "s/^device.name1=.*/device.name1=venus/" anykernel.sh
           sed -i "s/^device.name2=.*/device.name2=/" anykernel.sh
