@@ -25,6 +25,11 @@ on:
         required: false
         default: false
         type: boolean
+      embed_ksud:
+        description: 'Embed ksud into AnyKernel3 (set false to test kernel-side su fallback)'
+        required: false
+        default: true
+        type: boolean
 
 jobs:
   build:
@@ -277,20 +282,26 @@ jobs:
           rm -rf .git .github patch README.md
           mkdir -p patch
           cp ../kernel/out/arch/arm64/boot/Image .
-          # ---- 内置 ksud：刷完内核即可直接用 root ----
-          KSAPK_URL="https://github.com/LyraVoid/FinaSU/releases/download/v1.4.2/FinaSU_v1.4.2_33155-release.apk"
-          if curl -fL --retry 3 --connect-timeout 20 -o /tmp/fina.apk "$KSAPK_URL"; then
-            if unzip -o -j /tmp/fina.apk "lib/arm64-v8a/libksud.so" -d /tmp/kx > /dev/null; then
-              cp /tmp/kx/libksud.so ./ksud
-              chmod 755 ./ksud
-              echo "ksud injected: $(stat -c %s ./ksud) bytes"
+          # ---- 可选：内置 ksud（embed_ksud=false 用于验证内核侧 su fallback）----
+          EMBED_KSUD="${{ inputs.embed_ksud || 'true' }}"
+          echo "EMBED_KSUD=$EMBED_KSUD"
+          if [ "$EMBED_KSUD" = "true" ]; then
+            KSAPK_URL="https://github.com/LyraVoid/FinaSU/releases/download/v1.4.2/FinaSU_v1.4.2_33155-release.apk"
+            if curl -fL --retry 3 --connect-timeout 20 -o /tmp/fina.apk "$KSAPK_URL"; then
+              if unzip -o -j /tmp/fina.apk "lib/arm64-v8a/libksud.so" -d /tmp/kx > /dev/null; then
+                cp /tmp/kx/libksud.so ./ksud
+                chmod 755 ./ksud
+                echo "ksud injected: $(stat -c %s ./ksud) bytes"
+              else
+                echo "::warning::libksud.so not found in APK"
+              fi
             else
-              echo "::warning::libksud.so not found in APK"
+              echo "::warning::APK download failed, AK3 will NOT contain ksud"
             fi
+            cat ../ci/scripts/ak3-ksud.sh >> anykernel.sh
           else
-            echo "::warning::APK download failed, AK3 will NOT contain ksud"
+            echo "::notice::ksud NOT embedded - kernel-side su fallback test build"
           fi
-          cat ../ci/scripts/ak3-ksud.sh >> anykernel.sh
 
           sed -i "s/^kernel.string=.*/kernel.string=venus-FinaSU-SUSFS by cvby/" anykernel.sh
           sed -i "s/^device.name1=.*/device.name1=venus/" anykernel.sh
@@ -323,6 +334,7 @@ jobs:
             - KSU_SECOND_SIGNATURE_RELEASE=1 (slot2 = FinaSU release key, size 716)
             - preflight v2: 5.4 shim headers + global -include + devpts/umount retarget
             - Package: AnyKernel3 zip
+            - ksud embedded: ${{ inputs.embed_ksud || 'true' }}
 
             Install: flash in TWRP or a kernel flasher app.
             Manager: FinaSU manager matching the slot2 signature.
