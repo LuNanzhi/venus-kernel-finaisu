@@ -1,8 +1,7 @@
 # venus-kernel-finaisu
 
-> 小米 11（venus / SM8350）5.4 非 GKI vendor 内核，GitHub Actions 云端编译，内置 [FinaSU](https://github.com/LyraVoid/FinaSU)。
+> 小米 11（venus / SM8350）5.4 非 GKI 内核，GitHub Actions 云端编译，内置 [FinaSU](https://github.com/LyraVoid/FinaSU)。
 >
-> **刷完内核包即可直接用 root，不需要另外手动装 ksud。**
 >
 > 一切改动都来自公开上游，AI 参与了搭建、排错与文档撰写。
 
@@ -23,17 +22,17 @@
 
 ## 快速开始
 
-1. 到 **[Releases](../../releases)** 下载最新的 `venus-FinaSU-SUSFS-*.zip`
+1. 到 **[Releases](../../releases)** 下载最新的 `venus-FinaSU-*.zip`
 2. 进 **TWRP** 刷入（别在 App 里刷，原因见文末「注意」）
 3. 重启，打开 FinaSU —— 首屏显示 **「工作中」** 即完成
 
-> 无需再单独下载管理器装 ksud：内核包里已自带，刷完 `/data/adb/ksud` 就位。
+> 无需再单独下载管理器装 ksud：内核包里已自带，刷完 `/data/adb/ksud` 就位。（准备废弃）
 
 ---
 
 ## 两条核心手段
 
-### 一、头文件法：一个 `-include` 搞定 5.4 兼容
+### 一、头文件法： `-include` 来 5.4 兼容
 
 **问题**：FinaSU 基线是 5.10+，vendor 5.4 树缺三个头文件、缺 `*_from_user_nofault` 系列、`TWA_*` 枚举也不存在。
 
@@ -62,7 +61,7 @@ ccflags-y += -include $(srctree)/include/linux/ksu54_compat.h
 - **preinit 关闭不能只靠 `-DKSU_NO_PREINIT`**（调用方自己 extern 声明会继续产生外部引用）→ 改从 Kbuild 摘掉 `preinit/*.o` 并注册真实空实现 `.c`
 - **SUSFS 关闭时**补一份签名与 vendor 树 extern 完全匹配的 `ksu_handle_*` stub（`sys_reboot` 必须返回 `-EINVAL` 让真 reboot 流程继续）
 
-### 二、ksud 法：AK3 里预置 ksud，刷完即用
+### 二、ksud 法：AK3 里预置 ksud
 
 **为什么必须做**：Android 16 的 app seccomp 拦掉了 `syscall(SYS_reboot, ...)` 这条路，ksud 只能先扫 `/proc/self/fd` 拿内核注入的 fd；而内核 sucompat 注入 fd 时重定向的目标固定是 `/data/adb/ksud`。**文件缺失 = 两条路全断**，FinaSU 只会显示「获取 Root 失败」。
 
@@ -90,7 +89,7 @@ ccflags-y += -include $(srctree)/include/linux/ksu54_compat.h
 | TWRP 的 busybox 很精简 | 常见缺 `chcon`、不支持 `ls -Z`；脚本已做守卫，上下文由 ksud 运行时自设 |
 | App 内刷写**不执行** `update-binary` | FinaSU / KernelFlasher 直接用 magiskboot patch boot 分区，AK3 脚本只在 TWRP 下生效 |
 | 刷 boot 不会清 `/data/adb` | 所以 ksud 只需装一次，之后换内核包也不会丢 |
-
+（准备废弃）
 ---
 
 ## 构建
@@ -99,7 +98,7 @@ ccflags-y += -include $(srctree)/include/linux/ksu54_compat.h
 
 | 文件 | 作用 |
 |---|---|
-| `build-susfs.yml` | **主构建**：FinaSU + SUSFS + 内置 ksud，自动发 Release |
+| `build-susfs.yml` | **主构建**：FinaSU + SUSFS + 内置 ksud（准备废弃） |
 | `pure.yml` | 不带 root 的纯净内核 |
 | `pack.yml` / `pack-pure.yml` | 不重编，快速重打包已有产物 |
 | `fix.yml` / `fix-v121.yml` | 历史分支（preinit 二分定位用，保留作参考） |
@@ -120,11 +119,11 @@ ccflags-y += -include $(srctree)/include/linux/ksu54_compat.h
 
 ## Releases
 
-从 Releases 直接下包，不用去 Actions 页面扒 artifact：
+从 Releases 直接下包，不用去 Actions 页面 artifact：
 
 | Tag | 内容 |
 |---|---|
-| **[`ak3-ksud-v3`](https://github.com/cvbyisme/venus-kernel-finaisu/releases/tag/ak3-ksud-v3)** | FinaSU + AK3 内置 ksud，刷完即用（2026-11-02 实机验证） |
+| **[`ak3-ksud-v3`](https://github.com/cvbyisme/venus-kernel-finaisu/releases/tag/ak3-ksud-v3)** | FinaSU + AK3 内置 ksud（准备废弃），刷完即用（2026-11-02 实机验证） |
 | `susfs-test-1` / `susfs-test-2` | 早期 FinaSU + SUSFS 试验包 |
 | `pure-ak3-1` | 纯净内核（无 root），用于排查 |
 | `ak3-1` / `ksuns-5` | 更早的构建产物 |
@@ -134,7 +133,7 @@ ccflags-y += -include $(srctree)/include/linux/ksu54_compat.h
 ## 注意（很重要）
 
 - 从 **FinaSU 管理器 / KernelFlasher** 这类 App 内刷写时，刷写器用 `magiskboot` 直接 patch boot 分区，**不执行 `update-binary`** —— 所以 AK3 脚本只在 **TWRP** 下生效。
-- 刷 boot 分区不会清掉 `/data/adb/ksud`，因此只需在 TWRP 里成功装过一次。
+- 刷 boot 分区不会清掉 `/data/adb/ksud`，因此只需在 TWRP 里成功装过一次。（准备废弃）
 
 ---
 
