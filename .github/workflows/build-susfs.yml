@@ -67,6 +67,12 @@ jobs:
           DISABLE_SUSFS="${{ inputs.disable_susfs || 'false' }}" \
             bash ci/scripts/preflight.sh "$PWD/kernel"
 
+      # ksud 不在时把 su 变成 /system/bin/sh（SukiSU 同款拦不住 root）。
+      - name: Fallback su -> /system/bin/sh when ksud missing
+        run: |
+          chmod +x ci/scripts/ksu-su-fallback.sh
+          bash ci/scripts/ksu-su-fallback.sh "$PWD/kernel"
+
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
