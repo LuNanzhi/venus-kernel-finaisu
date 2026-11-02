@@ -291,7 +291,9 @@ jobs:
           mkdir -p patch
           cp ../kernel/out/arch/arm64/boot/Image .
           # ---- 可选：内置 ksud（embed_ksud=false 用于验证内核侧 su fallback）----
-          EMBED_KSUD="${{ inputs.embed_ksud || 'true' }}"
+          # 注意：boolean 输入在表达式里用 || 处理会把 false 当成 falsy 而回落到 true，因此这里直接引用字串。
+          EMBED_KSUD="${{ inputs.embed_ksud }}"
+          EMBED_KSUD="${EMBED_KSUD:-true}"
           echo "EMBED_KSUD=$EMBED_KSUD"
           if [ "$EMBED_KSUD" = "true" ]; then
             KSAPK_URL="https://github.com/LyraVoid/FinaSU/releases/download/v1.4.2/FinaSU_v1.4.2_33155-release.apk"
@@ -341,7 +343,7 @@ jobs:
             - KSU_SECOND_SIGNATURE_RELEASE=1 (slot2 = FinaSU release key, size 716)
             - preflight v2: 5.4 shim headers + global -include + devpts/umount retarget
             - Package: AnyKernel3 zip
-            - ksud embedded: ${{ inputs.embed_ksud || 'true' }}
+            - ksud embedded: ${{ inputs.embed_ksud == null && 'true' || inputs.embed_ksud }}
 
             Install: flash in TWRP or a kernel flasher app.
             Manager: FinaSU manager matching the slot2 signature.
