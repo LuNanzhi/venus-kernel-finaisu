@@ -49,7 +49,7 @@ ksud_install() {
     chcon u:object_r:adb_data_file:s0 /data/adb/ksu/bin/ksud 2>>$LOG;
     # 验证落地
     if [ -s /data/adb/ksud ]; then
-      echo "RESULT: OK  $(ls -lZ /data/adb/ksud 2>&1)" >> $LOG;
+      echo "RESULT: OK  $(ls -l /data/adb/ksud 2>&1)" >> $LOG;
       echo "LINK  : $(ls -l /data/adb/ksu/bin/ksud 2>&1)" >> $LOG;
       ui_print "  - /data/adb/ksud installed (ready to use)";
     else
