@@ -1,8 +1,14 @@
-# AnyKernel3 附加脚本：刷完内核自动安装 ksud
+# AnyKernel3 附加脚本：刷完内核预置 ksud
 # 作者：cvbyisme   共创：LuNanzhi
 # 由 .github/workflows/build-susfs.yml 在打包时 append 到 anykernel.sh 末尾
 #
-# 设计依据：/data/adb 属于 device-encrypted（DE）存储，只要 /data 分区
+# 双保险设计（两条路都不靠手动）：
+#   1. 内核侧 scripts/ksu-su-fallback.sh：/data/adb/ksud 缺失时把 su
+#      降级成 /system/bin/sh，保证首次刷完就能拿到 root；
+#   2. 本脚本：提前把 ksud 铺好，省掉那次临时 shell，
+#      管理器一启动就是完整状态。
+#
+# 判定依据：/data/adb 属于 device-encrypted（DE）存储，只要 /data 分区
 # 挂载成功就可写，不需要 FBE 解锁。所以用「真实可写测试」判定，
 # 而不是读 /data/system（那是 CE 区，TWRP 读不了，会误判）。
 #
