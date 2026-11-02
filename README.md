@@ -350,16 +350,51 @@ scripts/
 
 ---
 
-## 为什么 AK3 里不内置 ksud
-FinaSU 在 Android 16 上取 root 只有两条路：
-1. app 内经 `SYS_reboot` magic 直连内核 —— 被 Android 16 的 app seccomp 拦死
-2. spawn `su` → 内核 sucompat hook 重定向到 `/data/adb/ksud` —— 要求该文件已存在
-`/data/adb/ksud` 缺失确实会导致「获取 Root 失败」，但它属于**设备用户态环境**问题，不该由内核包承担：
-- 小米 11 上已有的第三方 AK3 包都能正常刷入使用，说明 AK3 / recovery 侧本身没问题
-- HyperOS 的 metadata 加密使 TWRP 进不去 `/data/adb` 所在的 FBE 区，AK3 脚本在 recovery 里写不进去
-- 从 FinaSU 管理器 / KernelFlasher 这类 app 内刷写时，刷写器用 magiskboot 直接 patch boot 分区，**不执行 update-binary**，脚本更没机会跑
-结论：ksud 只需装一次（`/data/adb/ksud`），刷 boot 分区不会清掉它，所以本项目不为 AK3 内置 ksud 安装逻辑。
-> 尝试过的方案与失败记录保留在 git 历史中（`ci: 打包 AK3 时自动注入 ksud`、`fix(ci): 脚本路径…` 及对应的 revert）。
+## AK3 内置 ksud（刷完即用）
+**已在小米 11 / HyperOS 3.0 / 5.4.302 内核上实测通过（2026-11-02）。**
+
+### 为什么需要
+FinaSU 在 Android 16 上取 root 有两条路：
+
+1. app 内经 `SYS_reboot` magic 直连内核 —— **被 Android 16 的 app seccomp 拦死**
+2. spawn `su` → 内核 sucompat hook 重定向到 `/data/adb/ksud` —— **要求该文件已存在**
+
+而 `ksucalls.rs` 的逻辑是：先扫 `/proc/self/fd` 看有没有继承来的 ksu driver fd，扫不到才用 `reboot` magic。
+继承 fd 的唯一途径就是路径 2。所以 `/data/adb/ksud` 缺失 = 两条路全断。
+
+上游内核包（如 SM8750 系列）的 `anykernel.sh` 里只有 `if [ -f /data/adb/ksud ]` 判断，缺失就跳过，**首次安装这一环是生态空白**。本项目把它补上。
+
+### 实现
+`build-susfs.yml` 打包 AK3 时自动完成：
+
+| 步骤 | 动作 |
+|---|---|
+| 1 | 下载 FinaSU APK，解出 `lib/arm64-v8a/libksud.so`，作为 `ksud` 放进 zip 根目录 |
+| 2 | 把 `ci/scripts/ak3-ksud.sh` 追加到 `anykernel.sh` 末尾（注意 CI 仓库被检出到 `ci/` 子目录） |
+
+刷机时（TWRP）：
+
+```
+mount | grep " on /data type"  → /data 已挂载？
+ ├─ 是 → mkdir /data/adb/ksu/bin 并做真实写测试
+ │       → 装 /data/adb/ksud（755 root:root）+ 软链 → RESULT: OK
+ └─ 否 → 不碰 /data，只把 ksud 放到 /sdcard/Download/ksud
+日志：/sdcard/Download/ksud-ak3.log
+```
+
+### 实测日志
+```
+data mount: /dev/block/sda34 on /data type f2fs (rw,lazytime,seclabel,...)
+RESULT: OK
+LINK  : /data/adb/ksu/bin/ksud -> /data/adb/ksud
+```
+装完 `/data/adb/ksud` 的 SELinux 上下文是 `u:object_r:ksu_file:s0`（ksud 运行时自动重设）。
+
+### 关键认知
+- **`/data/adb` 属于 device-encrypted（DE）存储，recovery 下不需要 FBE 解锁就能写**；不要用 `/data/system`（CE 区）判断是否已解密，会误判。
+- TWRP 的 busybox 没有 `chcon`、`ls -Z`，脚本已降级处理。
+- 从 FinaSU 管理器 / KernelFlasher 这类 app 内刷写时，刷写器用 magiskboot 直接 patch boot 分区，**不执行 update-binary**，所以本脚本只在 TWRP 下生效。
+
 ---
 
 ## 贡献者
