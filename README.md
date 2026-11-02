@@ -350,37 +350,16 @@ scripts/
 
 ---
 
-## AK3 自动安装 ksud
-
+## 为什么 AK3 里不内置 ksud
 FinaSU 在 Android 16 上取 root 只有两条路：
-
-1. app 内经 `SYS_reboot` magic 直连内核 —— **被 Android 16 的 seccomp 拦死**
-2. spawn `su` → 内核 sucompat hook 重定向到 `/data/adb/ksud` —— **要求该文件已存在**
-
-所以 `/data/adb/ksud` 是硬性前提。`build-susfs.yml` 在打包 AK3 时会自动完成两件事：
-
-| 步骤 | 动作 |
-|---|---|
-| 1 | 下载 FinaSU APK，解出 `lib/arm64-v8a/libksud.so`，作为 `ksud` 放进 zip 根目录 |
-| 2 | 把 `ci/scripts/ak3-ksud.sh` 追加到 `anykernel.sh` 末尾 |
-
-刷机时的行为（TWRP）：
-
-```
-/data 已解密？
- ├─ 是 → 装到 /data/adb/ksud，建 /data/adb/ksu/bin/ksud 软链
- └─ 否 → 不解密区一个字节都不写
-         ├─ ksud → /sdcard/Download/ksud
-         └─ 生成 /sdcard/Download/ksud-install-after-boot.sh（有 root 后一键装）
-日志：/sdcard/Download/ksud-ak3.log
-```
-
-判定方式：`/data/system/packages.xml` 可读，或 `/data/system/users` 存在 → 视为已解密。
-
-> ⚠️ 从 FinaSU 管理器 / KernelFlasher 这类 app 内刷写时，刷写器直接用 magiskboot 对 boot 分区打补丁，**不会执行 `update-binary`**，因此本脚本只在 TWRP 下生效。
-
-这套机制参考了 [@LuNanzhi](https://github.com/LuNanzhi) 成功设备的目录结构（`/data/adb/ksud` 实体 + `/data/adb/ksu/bin/ksud` 软链）；没有他那份完整 bugreport，根本看不出来缺的是这个文件。
-
+1. app 内经 `SYS_reboot` magic 直连内核 —— 被 Android 16 的 app seccomp 拦死
+2. spawn `su` → 内核 sucompat hook 重定向到 `/data/adb/ksud` —— 要求该文件已存在
+`/data/adb/ksud` 缺失确实会导致「获取 Root 失败」，但它属于**设备用户态环境**问题，不该由内核包承担：
+- 小米 11 上已有的第三方 AK3 包都能正常刷入使用，说明 AK3 / recovery 侧本身没问题
+- HyperOS 的 metadata 加密使 TWRP 进不去 `/data/adb` 所在的 FBE 区，AK3 脚本在 recovery 里写不进去
+- 从 FinaSU 管理器 / KernelFlasher 这类 app 内刷写时，刷写器用 magiskboot 直接 patch boot 分区，**不执行 update-binary**，脚本更没机会跑
+结论：ksud 只需装一次（`/data/adb/ksud`），刷 boot 分区不会清掉它，所以本项目不为 AK3 内置 ksud 安装逻辑。
+> 尝试过的方案与失败记录保留在 git 历史中（`ci: 打包 AK3 时自动注入 ksud`、`fix(ci): 脚本路径…` 及对应的 revert）。
 ---
 
 ## 贡献者
