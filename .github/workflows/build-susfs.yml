@@ -313,15 +313,28 @@ jobs:
             cat ../ci/scripts/ak3-ksud.sh >> anykernel.sh
           else
             echo "::notice::ksud NOT embedded - kernel-side su fallback test build"
-            cat >> anykernel.sh <<AK3EOF
+          fi
+          
+          # ---- TWRP 显示：内核详细信息 + 共创者 ----
+          BUILD_STAMP=$(date -u +%Y%m%d-%H%MZ)
+          CLANG_STR=$(clang --version | head -1 | cut -c1-48)
+          if [ "${{ inputs.disable_susfs || 'false' }}" = "true" ]; then SUSFS_STATE=disabled; else SUSFS_STATE=enabled; fi
+          if [ "$EMBED_KSUD" = "true" ]; then KSUD_STATE=embedded; else KSUD_STATE=not_embedded; fi
+          # 不加引号的 heredoc：让 $NEKO_VER / $BUILD_STAMP 等在 CI 侧就展开
+          cat >> anykernel.sh <<AK3EOF
           
           ui_print " ";
-          ui_print " - kernel 5.4.302-$NEKO_VER by cvby";
-          ui_print " - ksud: NOT embedded (FinaSU app will install it)";
-          ui_print " - su fallback: /data/adb/ksud missing -> /system/bin/sh";
+          ui_print "  venus (Xiaomi 11) FinaSU kernel";
+          ui_print "  kernel : 5.4.302-$NEKO_VER";
+          ui_print "  build  : $BUILD_STAMP UTC";
+          ui_print "  clang  : $CLANG_STR";
+          ui_print "  root   : FinaSU / KernelSU, signature slot2";
+          ui_print "  susfs  : $SUSFS_STATE";
+          ui_print "  ksud   : $KSUD_STATE";
+          ui_print "  author : cvbyisme & LuNanzhi";
           ui_print " ";
           AK3EOF
-          fi
+          
 
           sed -i "s/^kernel.string=.*/kernel.string=venus-FinaSU 5.4.302-$NEKO_VER by cvby/" anykernel.sh
           sed -i "s/^device.name1=.*/device.name1=venus/" anykernel.sh
