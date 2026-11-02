@@ -191,6 +191,11 @@ jobs:
           export OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip READELF=llvm-readelf
           clang --version
 
+          # 内核版本后缀：5.4.302-Neko-CL-<日期>-<随机>
+          NEKO_VER="Neko-CL-$(date +%Y%m%d)-$(od -An -N2 -tu2 /dev/urandom | tr -d ' ')"
+          echo "NEKO_VER=$NEKO_VER" >> $GITHUB_ENV
+          echo "kernel localversion: -$NEKO_VER"
+
           make -j$(nproc) O=out venus_defconfig
 
           if [ "${{ inputs.disable_susfs || 'false' }}" = "true" ]; then
@@ -212,6 +217,9 @@ jobs:
               --enable KSU_SUSFS_OPEN_REDIRECT --enable KSU_SUSFS_SUS_MAP \
               --enable KSU_DYNAMIC_MANAGER
           fi
+
+          # 不要 -g<sha> 后缀，只用我们自己的 Neko-CL 版本号
+          ./scripts/config --file out/.config --disable LOCALVERSION_AUTO
 
           make -j$(nproc) O=out olddefconfig
 
@@ -253,7 +261,7 @@ jobs:
 
           # D1 修补：不传 KSU_SECOND_SIGNATURE_RELEASE=1 时，
           # FINASU_TRUSTED_* 回落到 slot1（KSU 官方签名），slot2 白注入。
-          make -j$(nproc) O=out \
+          make -j$(nproc) O=out LOCALVERSION="-$NEKO_VER" \
             KSU_SECOND_SIGNATURE_RELEASE=1 \
             KSU_EXPECTED_SIZE2=716 \
             KSU_EXPECTED_HASH2=2d89b50aaf1db013c2b6738f973f48b62ea21a3a8d7216bfec3521065d448458 \
@@ -313,7 +321,7 @@ jobs:
           sed -i "s/^IS_SLOT_DEVICE=.*/IS_SLOT_DEVICE=1;/" anykernel.sh
           sed -i '/^backup_file /d;/^replace_string /d;/^insert_line /d;/^append_file /d;/^patch_fstab /d' anykernel.sh
           chmod +x anykernel.sh
-          NAME="venus-FinaSU-SUSFS-$(date +%Y%m%d)-run${GITHUB_RUN_NUMBER}"
+          NAME="venus-FinaSU-$(date +%Y%m%d)-run${GITHUB_RUN_NUMBER}"
           zip -r9 "../${NAME}.zip" . -x "*.git*" > /dev/null
           cd ..
           ls -lh *.zip
@@ -322,15 +330,14 @@ jobs:
       - name: Publish test release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: susfs-test-${{ github.run_number }}
-          name: venus FinaSU + SUSFS test build
+          tag_name: venus-test-${{ github.run_number }}
+          name: venus FinaSU kernel test build
           body: |
-            venus (Xiaomi 11) FinaSU built-in + SUSFS 5.4 - TEST BUILD
+            venus (Xiaomi 11) FinaSU built-in - TEST BUILD
 
             NOT VERIFIED ON DEVICE. Flash at your own risk.
 
-            - Kernel 5.4.302-HoshinoNeko, ZyC clang 14.0.6
-            - SUSFS v2.1.0 built-in from vendor tree, FinaSU master wired via extension/
+            - Kernel 5.4.302-${{ env.NEKO_VER }}, ZyC clang 14.0.6
             - KSU_SECOND_SIGNATURE_RELEASE=1 (slot2 = FinaSU release key, size 716)
             - preflight v2: 5.4 shim headers + global -include + devpts/umount retarget
             - Package: AnyKernel3 zip
