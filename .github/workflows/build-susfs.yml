@@ -219,6 +219,7 @@ jobs:
           fi
 
           # 不要 -g<sha> 后缀，只用我们自己的 Neko-CL 版本号
+          ./scripts/config --file out/.config --set-str LOCALVERSION ""
           ./scripts/config --file out/.config --disable LOCALVERSION_AUTO
 
           make -j$(nproc) O=out olddefconfig
@@ -312,9 +313,17 @@ jobs:
             cat ../ci/scripts/ak3-ksud.sh >> anykernel.sh
           else
             echo "::notice::ksud NOT embedded - kernel-side su fallback test build"
+            cat >> anykernel.sh <<AK3EOF
+          
+          ui_print " ";
+          ui_print " - kernel 5.4.302-$NEKO_VER by cvby";
+          ui_print " - ksud: NOT embedded (FinaSU app will install it)";
+          ui_print " - su fallback: /data/adb/ksud missing -> /system/bin/sh";
+          ui_print " ";
+          AK3EOF
           fi
 
-          sed -i "s/^kernel.string=.*/kernel.string=venus-FinaSU-SUSFS by cvby/" anykernel.sh
+          sed -i "s/^kernel.string=.*/kernel.string=venus-FinaSU 5.4.302-$NEKO_VER by cvby/" anykernel.sh
           sed -i "s/^device.name1=.*/device.name1=venus/" anykernel.sh
           sed -i "s/^device.name2=.*/device.name2=/" anykernel.sh
           sed -i "s/^device.name3=.*/device.name3=/" anykernel.sh
