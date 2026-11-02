@@ -1,24 +1,12 @@
-# AnyKernel3 附加脚本：刷完内核预置 ksud
+# AnyKernel3 附加脚本：刷完内核预置 ksud（准备废弃）
 # 作者：cvbyisme   共创：LuNanzhi
-# 由 .github/workflows/build-susfs.yml 在打包时 append 到 anykernel.sh 末尾
-#
-# 双保险设计（两条路都不靠手动）：
-#   1. 内核侧 scripts/ksu-su-fallback.sh：/data/adb/ksud 缺失时把 su
-#      降级成 /system/bin/sh，保证首次刷完就能拿到 root；
-#   2. 本脚本：提前把 ksud 铺好，省掉那次临时 shell，
-#      管理器一启动就是完整状态。
-#
-# 判定依据：/data/adb 属于 device-encrypted（DE）存储，只要 /data 分区
-# 挂载成功就可写，不需要 FBE 解锁。所以用「真实可写测试」判定，
-# 而不是读 /data/system（那是 CE 区，TWRP 读不了，会误判）。
-#
 # 目录结构参考 LuNanzhi 的成功设备：
 #   /data/adb/ksud          实体文件
 #   /data/adb/ksu/bin/ksud  软链接 -> /data/adb/ksud
 
 ksud_install() {
   ui_print " ";
-  ui_print "- ksud installer by cvbyisme & LuNanzhi";
+  ui_print "- Installer by cvbyisme & LuNanzhi";
   KS="$AKHOME/ksud";
   if [ ! -f "$KS" ]; then
     ui_print "! ksud not in package, skip";
@@ -47,7 +35,7 @@ ksud_install() {
     fi
     if [ -s /data/adb/ksud ]; then
       ui_print "  - /data/adb/ksud installed";
-      ui_print "  - reboot, then open FinaSU (root ready)";
+      ui_print "  - reboot, then Welcome to FinaSU! (root ready)";
     else
       OK=0;
       ui_print "! /data/adb/ksud verify failed";
