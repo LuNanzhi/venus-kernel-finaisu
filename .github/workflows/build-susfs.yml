@@ -179,6 +179,10 @@ jobs:
               --enable KSU_SUSFS_OPEN_REDIRECT --enable KSU_SUSFS_SUS_MAP \
               --enable KSU_DYNAMIC_MANAGER
           fi
+          # ---- 功耗调优 包1（低风险两项，不含 schedutil 默认）----
+          ./scripts/config --file out/.config \
+            --enable WQ_POWER_EFFICIENT_DEFAULT \
+            --disable PROFILING
           make -j$(nproc) O=out olddefconfig
 
           # flask.h 是 security/selinux 目录构建时才生成的（out/security/selinux/flask.h），
@@ -226,6 +230,10 @@ jobs:
               --enable KSU_SUSFS_OPEN_REDIRECT --enable KSU_SUSFS_SUS_MAP \
               --enable KSU_DYNAMIC_MANAGER
           fi
+          # ---- 功耗调优 包1（低风险两项，不含 schedutil 默认）----
+          ./scripts/config --file out/.config \
+            --enable WQ_POWER_EFFICIENT_DEFAULT \
+            --disable PROFILING
 
           # 不要 -g<sha> 后缀，只用我们自己的 Neko-CL 版本号
           ./scripts/config --file out/.config --set-str LOCALVERSION ""
@@ -253,6 +261,15 @@ jobs:
               MISSING=1
             fi
           done
+          # ---- 功耗调优 包1 门禁 ----
+          if ! grep -qx "CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y" out/.config; then
+            echo "::error::CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y missing (power pkg1)"
+            MISSING=1
+          fi
+          if grep -qx "CONFIG_PROFILING=y" out/.config; then
+            echo "::error::CONFIG_PROFILING=y still set (power pkg1)"
+            MISSING=1
+          fi
           if [ "${{ inputs.disable_susfs || 'false' }}" = "true" ]; then
             RESIDUE=$(grep -E 'CONFIG_KSU_SUSFS' out/.config | grep '=y' || true)
             if [ -n "$RESIDUE" ]; then
