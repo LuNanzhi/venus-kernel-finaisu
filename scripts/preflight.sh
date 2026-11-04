@@ -133,8 +133,65 @@ bool ksu_preinit_enabled_param(void)
 {
     return false;
 }
+
+/*
+ * SUSFS Inline call sites (scripts/susfs-hooks.sh) reference the two
+ * file-based preinit helpers from fs/exec.c even when preinit objects are
+ * removed. Provide real no-op definitions so the vmlinux link stays green.
+ * preinit_fd stays 0 => the exec.c call site never enters the retry path.
+ */
+struct filename;
+struct user_arg_ptr;
+
+int ksu_setup_preinit_file(struct filename **filename_ptr, struct user_arg_ptr *argv_user)
+{
+    (void)filename_ptr;
+    (void)argv_user;
+    return 0;
+}
+
+int ksu_preinit_handle_post_execveat(int *fd, struct filename **filename_ptr, void *argv_user,
+                                     void *envp_user, int *flags, int *retval, int *preinit_fd)
+{
+    (void)fd;
+    (void)filename_ptr;
+    (void)argv_user;
+    (void)envp_user;
+    (void)flags;
+    (void)retval;
+    (void)preinit_fd;
+    return 0;
+}
 EOF
     echo "  created extension/ksu54_preinit_off.c"
+  elif ! grep -q 'ksu_setup_preinit_file' "$POF"; then
+    cat >> "$POF" <<'EOF'
+
+/* ksu54_susfs_inline_preinit_helpers: fs/exec.c SUSFS Inline call sites */
+struct filename;
+struct user_arg_ptr;
+
+int ksu_setup_preinit_file(struct filename **filename_ptr, struct user_arg_ptr *argv_user)
+{
+    (void)filename_ptr;
+    (void)argv_user;
+    return 0;
+}
+
+int ksu_preinit_handle_post_execveat(int *fd, struct filename **filename_ptr, void *argv_user,
+                                     void *envp_user, int *flags, int *retval, int *preinit_fd)
+{
+    (void)fd;
+    (void)filename_ptr;
+    (void)argv_user;
+    (void)envp_user;
+    (void)flags;
+    (void)retval;
+    (void)preinit_fd;
+    return 0;
+}
+EOF
+    echo "  appended SUSFS Inline helpers to ksu54_preinit_off.c"
   else
     echo "  extension/ksu54_preinit_off.c exists (skip)"
   fi
@@ -432,6 +489,9 @@ chk "namespace.c exports do_mount"       "grep -q 'EXPORT_SYMBOL(do_mount)' '$KD
 chk "su_mount_ns.c uses do_mount"        "grep -q 'do_mount' '$SUDIR/infra/su_mount_ns.c'"
 chk "rules.c destroy-old guarded"         "grep -q 'ksu54_rules_fix' '$SUDIR/selinux/rules.c'"
 chk "rules.c status_update guarded"       "grep -q 'ksu54_status_guard' '$SUDIR/selinux/rules.c'"
+chk "exec.c post_execveat_sucompat call"  "grep -q 'ksu_handle_post_execveat_sucompat' '$KDIR/fs/exec.c'"
+chk "exec.c preinit call sites"           "grep -q 'ksu_setup_preinit_file' '$KDIR/fs/exec.c' && grep -q 'ksu_preinit_handle_post_execveat' '$KDIR/fs/exec.c'"
+chk "stat.c KSU_MANUAL_HOOK removed"      "! grep -q 'CONFIG_KSU_MANUAL_HOOK' '$KDIR/fs/stat.c'"
 
 if [ "${DISABLE_PREINIT:-false}" = "true" ]; then
   chk "preinit disabled (stub + objs removed)" "grep -q 'ksu54_preinit_off.o' '$SUDIR/Kbuild' && ! grep -q 'preinit/preinit\.o' '$SUDIR/Kbuild'"

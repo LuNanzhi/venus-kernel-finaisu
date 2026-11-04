@@ -65,6 +65,13 @@ jobs:
           KDIR_OVERRIDE="$PWD/kernel" bash ci/scripts/susfs-setup.sh \
             || echo "::warning::susfs-setup partially applied; preflight compensates"
 
+      # SUSFS Inline 后端要求内核树有完整的 ksu_handle_* 直接调用点；
+      # FinaSU Kbuild 在 KSU_HOOK_SUSFS_INLINE=y 时强制跑 check_susfs_inline.sh。
+      - name: Complete SUSFS Inline hook call sites (fs/exec.c, fs/stat.c)
+        run: |
+          chmod +x ci/scripts/susfs-hooks.sh
+          bash ci/scripts/susfs-hooks.sh "$PWD/kernel"
+
       - name: Preflight (5.4 shim headers, Kbuild injection, devpts, umount)
         run: |
           chmod +x ci/scripts/preflight.sh
@@ -159,7 +166,8 @@ jobs:
               --disable KSU_SUSFS_SPOOF_UNAME --disable KSU_SUSFS_ENABLE_LOG \
               --disable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
               --disable KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-              --disable KSU_SUSFS_OPEN_REDIRECT --disable KSU_SUSFS_SUS_MAP
+              --disable KSU_SUSFS_OPEN_REDIRECT --disable KSU_SUSFS_SUS_MAP \
+              --disable KSU_HOOK_SUSFS_INLINE
           else
             ./scripts/config --file out/.config \
               --enable KPROBES --enable KSU --enable KSU_SUSFS \
@@ -168,7 +176,8 @@ jobs:
               --enable KSU_SUSFS_ENABLE_LOG --enable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
               --enable KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
               --enable KSU_SUSFS_OPEN_REDIRECT --enable KSU_SUSFS_SUS_MAP \
-              --enable KSU_DYNAMIC_MANAGER
+              --enable KSU_DYNAMIC_MANAGER \
+              --enable KSU_HOOK_SUSFS_INLINE --disable KSU_HOOK_TRACEPOINT
           fi
           make -j$(nproc) O=out olddefconfig
 
@@ -206,7 +215,8 @@ jobs:
               --disable KSU_SUSFS_SPOOF_UNAME --disable KSU_SUSFS_ENABLE_LOG \
               --disable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
               --disable KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-              --disable KSU_SUSFS_OPEN_REDIRECT --disable KSU_SUSFS_SUS_MAP
+              --disable KSU_SUSFS_OPEN_REDIRECT --disable KSU_SUSFS_SUS_MAP \
+              --disable KSU_HOOK_SUSFS_INLINE
           else
             ./scripts/config --file out/.config \
               --enable KPROBES --enable KSU --enable KSU_SUSFS \
@@ -215,7 +225,8 @@ jobs:
               --enable KSU_SUSFS_ENABLE_LOG --enable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
               --enable KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
               --enable KSU_SUSFS_OPEN_REDIRECT --enable KSU_SUSFS_SUS_MAP \
-              --enable KSU_DYNAMIC_MANAGER
+              --enable KSU_DYNAMIC_MANAGER \
+              --enable KSU_HOOK_SUSFS_INLINE --disable KSU_HOOK_TRACEPOINT
           fi
 
           # 不要 -g<sha> 后缀，只用我们自己的 Neko-CL 版本号
@@ -244,6 +255,17 @@ jobs:
               MISSING=1
             fi
           done
+          if [ "${{ inputs.disable_susfs || 'false' }}" != "true" ]; then
+            # SUSFS 开启必须用与内联补丁树匹配的 SUSFS Inline 钩子后端
+            if ! grep -qx "CONFIG_KSU_HOOK_SUSFS_INLINE=y" out/.config; then
+              echo "::error::CONFIG_KSU_HOOK_SUSFS_INLINE=y is missing from out/.config"
+              MISSING=1
+            fi
+            if grep -qx "CONFIG_KSU_HOOK_TRACEPOINT=y" out/.config; then
+              echo "::error::CONFIG_KSU_HOOK_TRACEPOINT=y still set (SUSFS Inline backend expected)"
+              MISSING=1
+            fi
+          fi
           if [ "${{ inputs.disable_susfs || 'false' }}" = "true" ]; then
             RESIDUE=$(grep -E 'CONFIG_KSU_SUSFS' out/.config | grep '=y' || true)
             if [ -n "$RESIDUE" ]; then
@@ -365,6 +387,8 @@ jobs:
             - Kernel 5.4.302-${{ env.NEKO_VER }}, ZyC clang 14.0.6
             - KSU_SECOND_SIGNATURE_RELEASE=1 (slot2 = FinaSU release key, size 716)
             - preflight v2: 5.4 shim headers + global -include + devpts/umount retarget
+            - SUSFS v2.1.0 built-in (vendor tree), hook backend: SUSFS Inline
+              (KSU_HOOK_SUSFS_INLINE=y, call sites completed by susfs-hooks.sh)
             - Package: AnyKernel3 zip
             - ksud embedded: ${{ env.KSUD_EMBED || 'true' }}
 

@@ -98,7 +98,7 @@ ccflags-y += -include $(srctree)/include/linux/ksu54_compat.h
 
 | 文件 | 作用 |
 |---|---|
-| `build-susfs.yml` | **主构建**：FinaSU + SUSFS + 内置 ksud（准备废弃） |
+| `build-susfs.yml` | **主构建**：FinaSU + SUSFS（SUSFS Inline 后端）+ 内置 ksud |
 | `pure.yml` | 不带 root 的纯净内核 |
 | `pack.yml` / `pack-pure.yml` | 不重编，快速重打包已有产物 |
 | `fix.yml` / `fix-v121.yml` | 历史分支（preinit 二分定位用，保留作参考） |
@@ -110,8 +110,31 @@ ccflags-y += -include $(srctree)/include/linux/ksu54_compat.h
 | `scripts/preflight.sh` | 5.4 兼容层施工（头文件壳、`-include` 注入、桩函数、前置校验） |
 | `scripts/ksu54-compat.h` | 兼容头本体（被 `-include` 全局注入） |
 | `scripts/susfs-setup.sh` | SUSFS 5.4 移植 |
+| `scripts/susfs-hooks.sh` | 补齐 SUSFS Inline 后端要求的 `fs/exec.c` / `fs/stat.c` 内核调用点（见下） |
 | `scripts/ak3-ksud.sh` | AK3 内置 ksud 安装器 |
 | `scripts/ksu54-compat.sh`、`scripts/ksu54-v121.sh` | 早期逐文件补丁版，保留备用 |
+
+### SUSFS Inline 钩子后端
+
+FinaSU v1.4.2 提供两个 syscall 钩子后端：默认 **Tracepoint**，以及为内联 SUSFS
+内核补丁树设计的 **SUSFS Inline**（`KSU_HOOK_SUSFS_INLINE=y`）。本项目的 5.4
+vendor 树（miyume）自带 SUSFS v2.1.0 内联补丁，必须用 Inline 后端；启用后
+FinaSU Kbuild 会强制运行 `kernel/tools/check_susfs_inline.sh` 校验内核调用点。
+
+本树与校验清单的差距（均由 `scripts/susfs-hooks.sh` 在 CI 里补齐，内核仓库本体不改）：
+
+| 内核文件 | 状态 |
+|---|---|
+| `drivers/input/input.c` `ksu_handle_input_handle_event` | 已有 |
+| `fs/exec.c` `ksu_handle_execveat` / `ksu_handle_execveat_sucompat` | 已有 |
+| `fs/exec.c` `ksu_handle_post_execveat_sucompat` | **补齐**（su session 收尾） |
+| `fs/exec.c` `ksu_setup_preinit_file` / `ksu_preinit_handle_post_execveat` | **补齐**（preinit 接管与失败重试） |
+| `fs/open.c` `ksu_handle_faccessat`、`fs/read_write.c` `ksu_handle_sys_read` | 已有 |
+| `fs/stat.c` `ksu_handle_stat` / `ksu_handle_vfs_fstat` | 已有（另清理 3 处 `CONFIG_KSU_MANUAL_HOOK` 残留） |
+| `kernel/reboot.c` `ksu_handle_sys_reboot`、`kernel/sys.c` `ksu_handle_setresuid` | 已有 |
+
+工作流在 SUSFS 开启时强制 `KSU_HOOK_SUSFS_INLINE=y` + `KSU_HOOK_TRACEPOINT=n`，
+并在构建前跑 `susfs-hooks.sh`；配置门禁会校验这两项，防止静默回落 Tracepoint。
 
 > CI 里 `actions/checkout` 用 `path: ci`，所以脚本的真实路径是 `ci/scripts/*`（= 仓库 `scripts/*`）。
 
