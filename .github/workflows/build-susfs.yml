@@ -65,6 +65,15 @@ jobs:
           KDIR_OVERRIDE="$PWD/kernel" bash ci/scripts/susfs-setup.sh \
             || echo "::warning::susfs-setup partially applied; preflight compensates"
 
+      # FinaSU v1.4.2 管理器的 ksud 要求内核 SUSFS 版本字符串精确等于 v2.3.0，
+      # 否则判定 unknown_protocol（SUSFS 页只读、全功能不可用）。内核树是
+      # v2.1.0，但 wire 协议（CMD 编号 + st_susfs 结构）与 v2.3.0 完全兼容，
+      # 故让内核如实汇报 v2.3.0，并顺手修 ctime 伪装标志的笔误。
+      - name: Point kernel SUSFS at v2.3.0 wire protocol (FinaSU manager)
+        run: |
+          chmod +x ci/scripts/susfs-version.sh
+          bash ci/scripts/susfs-version.sh "$PWD/kernel"
+
       - name: Preflight (5.4 shim headers, Kbuild injection, devpts, umount)
         run: |
           chmod +x ci/scripts/preflight.sh
@@ -170,6 +179,13 @@ jobs:
               --enable KSU_SUSFS_OPEN_REDIRECT --enable KSU_SUSFS_SUS_MAP \
               --enable KSU_DYNAMIC_MANAGER
           fi
+          # ---- 功耗调优（零性能代价）：默认 schedutil（EAS）+ 标准省电开关 ----
+          ./scripts/config --file out/.config \
+            --enable CPU_FREQ_DEFAULT_GOV_SCHEDUTIL \
+            --disable CPU_FREQ_DEFAULT_GOV_PERFORMANCE \
+            --enable WQ_POWER_EFFICIENT_DEFAULT \
+            --disable SCHED_DEBUG \
+            --disable PROFILING
           make -j$(nproc) O=out olddefconfig
 
           # flask.h 是 security/selinux 目录构建时才生成的（out/security/selinux/flask.h），
@@ -217,6 +233,13 @@ jobs:
               --enable KSU_SUSFS_OPEN_REDIRECT --enable KSU_SUSFS_SUS_MAP \
               --enable KSU_DYNAMIC_MANAGER
           fi
+          # ---- 功耗调优（零性能代价）：默认 schedutil（EAS）+ 标准省电开关 ----
+          ./scripts/config --file out/.config \
+            --enable CPU_FREQ_DEFAULT_GOV_SCHEDUTIL \
+            --disable CPU_FREQ_DEFAULT_GOV_PERFORMANCE \
+            --enable WQ_POWER_EFFICIENT_DEFAULT \
+            --disable SCHED_DEBUG \
+            --disable PROFILING
 
           # 不要 -g<sha> 后缀，只用我们自己的 Neko-CL 版本号
           ./scripts/config --file out/.config --set-str LOCALVERSION ""
@@ -244,6 +267,27 @@ jobs:
               MISSING=1
             fi
           done
+          # ---- 功耗调优门禁 ----
+          if ! grep -qx "CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y" out/.config; then
+            echo "::error::CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y missing (power tune)"
+            MISSING=1
+          fi
+          if grep -qx "CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y" out/.config; then
+            echo "::error::CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y still set (power tune)"
+            MISSING=1
+          fi
+          if ! grep -qx "CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y" out/.config; then
+            echo "::error::CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y missing (power tune)"
+            MISSING=1
+          fi
+          if grep -qx "CONFIG_SCHED_DEBUG=y" out/.config; then
+            echo "::error::CONFIG_SCHED_DEBUG=y still set (power tune)"
+            MISSING=1
+          fi
+          if grep -qx "CONFIG_PROFILING=y" out/.config; then
+            echo "::error::CONFIG_PROFILING=y still set (power tune)"
+            MISSING=1
+          fi
           if [ "${{ inputs.disable_susfs || 'false' }}" = "true" ]; then
             RESIDUE=$(grep -E 'CONFIG_KSU_SUSFS' out/.config | grep '=y' || true)
             if [ -n "$RESIDUE" ]; then

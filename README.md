@@ -110,10 +110,38 @@ ccflags-y += -include $(srctree)/include/linux/ksu54_compat.h
 | `scripts/preflight.sh` | 5.4 兼容层施工（头文件壳、`-include` 注入、桩函数、前置校验） |
 | `scripts/ksu54-compat.h` | 兼容头本体（被 `-include` 全局注入） |
 | `scripts/susfs-setup.sh` | SUSFS 5.4 移植 |
+| `scripts/susfs-version.sh` | SUSFS 版本对齐（v2.1.0 内核如实汇报 v2.3.0 协议，修 ctime 笔误） |
 | `scripts/ak3-ksud.sh` | AK3 内置 ksud 安装器 |
 | `scripts/ksu54-compat.sh`、`scripts/ksu54-v121.sh` | 早期逐文件补丁版，保留备用 |
 
 > CI 里 `actions/checkout` 用 `path: ci`，所以脚本的真实路径是 `ci/scripts/*`（= 仓库 `scripts/*`）。
+
+### SUSFS 版本对齐（v2.3.0 协议）
+
+FinaSU v1.4.2 的 ksud 要求内核 SUSFS 版本字符串**精确等于 `v2.3.0`**，否则
+判定 `unknown_protocol`，管理器 SUSFS 页只读、全功能不可用。本树自带 SUSFS
+v2.1.0，但两者的用户态协议完全兼容（23 个 `CMD_SUSFS_*` 编号逐一相同、
+`st_susfs_*` wire 结构布局一致，差异只在内核内部实现）。因此
+`scripts/susfs-version.sh` 让内核如实汇报 `v2.3.0`，并顺手修掉 v2.1.0 的
+`KSTAT_SPOOF_CTIME_TV_SEC (1 < 8)` 笔误（应为 `(1 << 8)`）。
+
+钩子后端采用 **Tracepoint**：FinaSU 的 `SUSFS Inline` 后端在 5.4 上会导致
+内核 panic（init exec 路径，连 recovery 也无法进入），已实机复现，故不采用。
+
+### 功耗调优（开发中）
+
+> 状态：**开发中，未启用**。run 14 加入下列开关后卡第一屏（recovery 可进，
+> 非 panic 型崩溃），排查中；当前发布版本默认仍为 `performance` governor。
+
+计划中的零性能代价省电开关：
+
+| 开关 | 改动 | 理由 |
+|---|---|---|
+| `CPU_FREQ_DEFAULT_GOV_SCHEDUTIL` | 默认 governor `performance` → `schedutil` | SM8350 是 EAS（WALT）平台，schedutil 按负载调频：轻负载降频省电，突发负载性能不变 |
+| `WQ_POWER_EFFICIENT_DEFAULT` | 开启 | 内核工作队列优先调度到低功耗核 |
+| `SCHED_DEBUG` / `PROFILING` | 关闭 | 移除调度器调试记账与 profiling 钩子开销 |
+
+相关改动保留在 fork 的 `power-wip` 分支，调试完成后重新提交。
 
 ---
 
