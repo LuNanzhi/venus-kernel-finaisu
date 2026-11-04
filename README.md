@@ -136,6 +136,22 @@ FinaSU Kbuild 会强制运行 `kernel/tools/check_susfs_inline.sh` 校验内核�
 工作流在 SUSFS 开启时强制 `KSU_HOOK_SUSFS_INLINE=y` + `KSU_HOOK_TRACEPOINT=n`，
 并在构建前跑 `susfs-hooks.sh`；配置门禁会校验这两项，防止静默回落 Tracepoint。
 
+### 功耗调优
+
+第三方内核普遍比原厂耗电，主要来源之一是默认 governor。本项目构建在
+`olddefconfig` 前统一应用一组**零性能代价**的省电开关：
+
+| 开关 | 改动 | 理由 |
+|---|---|---|
+| `CPU_FREQ_DEFAULT_GOV_SCHEDUTIL` | 默认 governor `performance` → **`schedutil`** | SM8350 是 EAS（WALT）平台，schedutil 按负载调频：轻负载大幅降频省电，突发负载性能与 performance 无异，还避免长期满频导致的热降频 |
+| `WQ_POWER_EFFICIENT_DEFAULT` | 开启 | 内核工作队列优先调度到低功耗核，标准省电项 |
+| `SCHED_DEBUG` | 关闭 | 移除调度器调试记账开销 |
+| `PROFILING` | 关闭 | 移除内核 profiling 钩子 |
+
+CI 门禁会校验 `schedutil` 默认项生效（防静默回落 performance）。对比参考 DSL
+内核（默认 `performance` governor），本项目默认更省电；需要极限性能时可在
+用户空间手动切回 `performance`。
+
 > CI 里 `actions/checkout` 用 `path: ci`，所以脚本的真实路径是 `ci/scripts/*`（= 仓库 `scripts/*`）。
 
 ---
