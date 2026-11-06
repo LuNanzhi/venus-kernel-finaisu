@@ -635,6 +635,112 @@ done:
 	pr_info("ksu54: snapshot %d native SELinux types\n", n);
 }
 
+/* ===== ksu54: mask root-only grants in SELinux access oracle =====
+ * 春秋 / DirtySepolicy 直接向 /sys/fs/selinux/access 发哨兵查询。下面这些
+ * allow 在干净 AOSP user build 上是 deny，一旦返回 allow 就会被判成
+ * root / 模块注入。这里把对应位剥掉，返回干净值。
+ */
+struct ksu54_mask_rule {
+	const char *scon;
+	const char *tcon;
+	const char *perm;
+};
+
+static const struct ksu54_mask_rule ksu54_mask_rules[] = {
+	{ "u:r:system_server:s0", "u:r:system_server:s0", "execmem" },
+	{ "u:r:zygote:s0", "u:object_r:adb_data_file:s0", "search" },
+	{ "u:r:shell:s0", "u:r:su:s0", "transition" },
+	{ "u:r:kernel:s0", "u:object_r:adb_data_file:s0", "read" },
+	{ "u:r:system_server:s0", "u:object_r:apk_data_file:s0", "execute" },
+	{ "u:r:dex2oat:s0", "u:object_r:dex2oat_exec:s0", "execute_no_trans" },
+	{ "u:object_r:rootfs:s0", "u:object_r:tmpfs:s0", "associate" },
+	{ "u:r:kernel:s0", "u:object_r:tmpfs:s0", "open" },
+};
+
+/* 比较 user:role:type 三段是否相同（忽略 MLS/category） */
+static bool ksu54_head_eq(const char *a, const char *b)
+{
+	int i;
+
+	if (!a || !b)
+		return false;
+	for (i = 0; i < 2; i++) {
+		while (*a && *a != ':') {
+			if (*b != *a)
+				return false;
+			a++;
+			b++;
+		}
+		if (*a != ':' || *b != ':')
+			return false;
+		a++;
+		b++;
+	}
+	while (*a && *a != ':') {
+		if (*b != *a)
+			return false;
+		a++;
+		b++;
+	}
+	return *b == ':' || *b == '\0';
+}
+
+static u32 ksu54_perm_bit(u16 tclass, const char *perm)
+{
+	struct policydb *pol;
+	struct class_datum *clad;
+	struct hashtab *ht;
+	u32 i;
+
+	if (!perm || !selinux_state.ss)
+		return 0;
+	pol = &selinux_state.ss->policydb;
+	if (!pol->class_val_to_struct || !tclass || tclass > pol->p_classes.nprim)
+		return 0;
+	clad = pol->class_val_to_struct[tclass - 1];
+	if (!clad)
+		return 0;
+	ht = clad->permissions.table;
+	if (!ht)
+		return 0;
+	for (i = 0; i < ht->size; i++) {
+		struct hashtab_node *node;
+
+		for (node = ht->htable[i]; node; node = node->next) {
+			struct perm_datum *pd;
+
+			if (!node->key || strcmp((const char *)node->key, perm))
+				continue;
+			pd = node->datum;
+			if (pd && pd->value)
+				return 1u << (pd->value - 1);
+		}
+	}
+	return 0;
+}
+
+void ksu54_mask_avd(const char *scon, const char *tcon, u16 tclass, struct av_decision *avd)
+{
+	int i;
+
+	if (!scon || !tcon || !avd)
+		return;
+	for (i = 0; i < (int)(sizeof(ksu54_mask_rules) / sizeof(ksu54_mask_rules[0])); i++) {
+		const struct ksu54_mask_rule *r = &ksu54_mask_rules[i];
+		u32 bit;
+
+		if (!ksu54_head_eq(scon, r->scon) || !ksu54_head_eq(tcon, r->tcon))
+			continue;
+		bit = ksu54_perm_bit(tclass, r->perm);
+		if (!bit)
+			continue;
+		if (avd->allowed & bit) {
+			avd->allowed &= ~bit;
+			pr_info("ksu54: mask avd %s -> %s perm=%s\n", r->scon, r->tcon, r->perm);
+		}
+	}
+}
+
 '''
 
 # ---------- 1) rules.c ----------
@@ -657,7 +763,7 @@ if "ksu54_context_is_foreign" in s:
 else:
     s = once(s, "bool ksu_selinux_hide_running __read_mostly = false;",
              "bool ksu_selinux_hide_running __read_mostly = false;\n\n"
-             "extern bool ksu54_context_is_foreign(const char *s, size_t len);",
+             "extern bool ksu54_context_is_foreign(const char *s, size_t len);\nextern void ksu54_mask_avd(const char *scon, const char *tcon, u16 tclass, struct av_decision *avd);",
              "hide_running decl")
     s = once(s,
              "    char *canon = NULL;\n    u32 sid, len;\n    ssize_t length;\n",
@@ -677,6 +783,13 @@ else:
              "    if (size && str[0] && str[0] != '\\n') {\n"
              "        if (ksu54_context_is_foreign(str, size))\n            return -EINVAL;\n",
              "setprocattr body")
+    s = once(s,
+             "    security_compute_av_user_with_policy(backup_sepolicy, ssid, tsid, tclass, &avd);\n"
+             "\n    // stock reads 1;",
+             "    security_compute_av_user_with_policy(backup_sepolicy, ssid, tsid, tclass, &avd);\n"
+             "    ksu54_mask_avd(scon, tcon, tclass, &avd);\n"
+             "\n    // stock reads 1;",
+             "write_access mask")
     save(SIH, s)
     print("selinux_hide.c: extern + 3 filter sites injected")
 
