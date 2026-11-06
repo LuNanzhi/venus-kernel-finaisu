@@ -347,13 +347,81 @@ open(P, "w", encoding="utf-8").write(s)
 print("sepolicy.c: v5.7 helpers replaced with 5.4 policydb backport")
 SECPEOF
 fi
-echo "=== [SUSFS] step 4e: selinux_hide needs 5.7+ selinux_policy API, stub on 5.4 ==="
+echo "=== [SUSFS] step 4e: selinux_hide backport - reuse 5.4 in-kernel SELinux services ==="
 SIH="$SUDIR/feature/selinux_hide.c"
-if [ -f "$SIH" ] && ! grep -q ksu54_selinux_hide_stub "$SIH"; then
+if [ -f "$SIH" ] && ! grep -q ksu54_selinux_hide_54 "$SIH"; then
 python3 - <<'SIHEOF'
-import base64
-open("KernelSU/kernel/feature/selinux_hide.c", "w").write(base64.b64decode("I2luY2x1ZGUgInNlbGludXhfaGlkZS5oIgojaW5jbHVkZSA8bGludXgvdmVyc2lvbi5oPgojaW5jbHVkZSA8bGludXgvdHlwZXMuaD4KI2luY2x1ZGUgPGxpbnV4L2ZzLmg+CiNpbmNsdWRlIDxsaW51eC9rZXJuZWwuaD4KCiNpZiBMSU5VWF9WRVJTSU9OX0NPREUgPCBLRVJORUxfVkVSU0lPTig1LCA3LCAwKQovKiBrc3U1NF9zZWxpbnV4X2hpZGVfc3R1YjogRmluYVNVIHNlbGludXhfaGlkZSByZWJ1aWxkcyBTRUxpbnV4IHBvbGljeSB3aXRoCiAqIHNlY3VyaXR5X2NvbnRleHRfdG9fc2lkX3dpdGhfcG9saWN5KCkvc2VjdXJpdHlfY29tcHV0ZV9hdl91c2VyX3dpdGhfcG9saWN5KCksCiAqIHdoaWNoIG9ubHkgYXBwZWFyZWQgd2l0aCB0aGUgNS43IHNlbGludXhfcG9saWN5IHNwbGl0LiBPbiA1LjQgdGhlIGZlYXR1cmUgaXMKICogYSBuby1vcDsgU1VTRlMgaGlkaW5nIGl0c2VsZiBpcyBub3QgYWZmZWN0ZWQuCiAqLwojaW5jbHVkZSAic2VsaW51eC9zZXBvbGljeS5oIgojaW5jbHVkZSAia3N1LmgiCiNpbmNsdWRlICJrbG9nLmgiCmJvb2wga3N1X3NlbGludXhfaGlkZV9lbmFibGVkID0gZmFsc2U7CmJvb2wga3N1X3NlbGludXhfaGlkZV9ydW5uaW5nID0gZmFsc2U7CnNzaXplX3QgbXlfd3JpdGVfY29udGV4dChzdHJ1Y3QgZmlsZSAqZmlsZSwgY2hhciAqYnVmLCBzaXplX3Qgc2l6ZSkKewogICAgKHZvaWQpZmlsZTsKICAgICh2b2lkKWJ1ZjsKICAgIHJldHVybiBzaXplOwp9CnNzaXplX3QgbXlfd3JpdGVfYWNjZXNzKHN0cnVjdCBmaWxlICpmaWxlLCBjaGFyICpidWYsIHNpemVfdCBzaXplKQp7CiAgICAodm9pZClmaWxlOwogICAgKHZvaWQpYnVmOwogICAgcmV0dXJuIHNpemU7Cn0Kdm9pZCBrc3Vfc2VsaW51eF9oaWRlX2luaXQodm9pZCkKewogICAgcHJfaW5mbygic2VsaW51eF9oaWRlOiBzdHViYmVkIG9uIDUuNFxuIik7Cn0Kdm9pZCBrc3Vfc2VsaW51eF9oaWRlX2V4aXQodm9pZCkKewp9CnZvaWQga3N1X3NlbGludXhfaGlkZV9kcm9wX2JhY2t1cF9pZl91bnVzZWQodm9pZCkKewogICAgaWYgKGJhY2t1cF9zZXBvbGljeSkgewogICAgICAgIGtzdV9kZXN0cm95X3NlcG9saWN5KGJhY2t1cF9zZXBvbGljeSk7CiAgICAgICAgYmFja3VwX3NlcG9saWN5ID0gTlVMTDsKICAgIH0KfQp2b2lkIGtzdV9zZWxpbnV4X2hpZGVfaGFuZGxlX3NlY29uZF9zdGFnZSh2b2lkKQp7Cn0Kdm9pZCBrc3Vfc2VsaW51eF9oaWRlX2hhbmRsZV9wb3N0X2ZzX2RhdGEodm9pZCkKewp9CiNlbmRpZgo=").decode())
-print("selinux_hide.c: 5.4 no-op stub")
+import io, sys
+
+P = "KernelSU/kernel/feature/selinux_hide.c"
+s = io.open(P, encoding="utf-8").read()
+
+# 1) enable(): 5.4 queries the live policy, drop the hard backup_sepolicy gate
+old_enable = '''    if (!backup_sepolicy) {
+        pr_err("no backup sepolicy available, please save feature and reboot to retry!\\n");
+        return -EAGAIN;
+    }
+'''
+new_enable = '    /* ksu54_selinux_hide_54: live policy queried directly, no backup sepolicy needed */\n'
+if old_enable not in s:
+    sys.exit("selinux_hide54: enable guard not found (upstream changed?)")
+s = s.replace(old_enable, new_enable, 1)
+
+# 2) drop_backup_if_unused(): shim struct selinux_policy owns no sidtab
+old_drop = '''        sidtab_destroy(backup_sepolicy->sidtab);
+        kfree(backup_sepolicy->sidtab);
+        ksu_destroy_sepolicy(backup_sepolicy);
+        backup_sepolicy = NULL;'''
+new_drop = '''        /* ksu54_selinux_hide_54: shim policy owns no sidtab */
+        backup_sepolicy = NULL;'''
+if old_drop not in s:
+    sys.exit("selinux_hide54: drop block not found (upstream changed?)")
+s = s.replace(old_drop, new_drop, 1)
+
+# 3) disable the 5.7+ policydb/sidtab internal rebuild
+marker = '/*\n * Caveat:  Mutates scontext.\n */'
+idx = s.find(marker)
+if idx < 0:
+    sys.exit("selinux_hide54: internals marker not found (upstream changed?)")
+head, tail = s[:idx], s[idx:]
+tail = ('#if 0 /* ksu54_selinux_hide_54: 5.7-only policydb/sidtab internals, unused on 5.4 */\n'
+        + tail + '\n#endif /* ksu54_selinux_hide_54 internals */\n')
+
+ADD = r'''
+/* ksu54_selinux_hide_54: Linux 5.4 keeps the live policy in
+ * selinux_state.ss->policydb, and its SELinux services take &selinux_state.
+ * Reuse them instead of rebuilding the 5.7+ policy/sidtab internals. */
+static int security_context_to_sid_with_policy(struct selinux_policy *policy, const char *scontext, u32 scontext_len,
+                                              u32 *sid, u32 def_sid, gfp_t gfp_flags, u32 *orig_sid_p, int *orig_rc_p)
+{
+    int rc;
+    (void)policy;
+    rc = security_context_to_sid_default(&selinux_state, scontext, scontext_len, sid, def_sid, gfp_flags);
+    if (orig_rc_p)
+        *orig_rc_p = rc;
+    if (orig_sid_p)
+        *orig_sid_p = rc ? SECSID_NULL : *sid;
+    return rc;
+}
+
+static int security_sid_to_context_with_policy(struct selinux_policy *policy, u32 sid, char **scontext,
+                                              u32 *scontext_len)
+{
+    (void)policy;
+    return security_sid_to_context(&selinux_state, sid, scontext, scontext_len);
+}
+
+static void security_compute_av_user_with_policy(struct selinux_policy *policy, u32 ssid, u32 tsid, u16 tclass,
+                                                struct av_decision *avd)
+{
+    (void)policy;
+    security_compute_av_user(&selinux_state, ssid, tsid, tclass, avd);
+}
+/* ksu54_selinux_hide_54 done */
+'''
+
+io.open(P, "w", encoding="utf-8").write(head + tail + ADD)
+print("selinux_hide.c: 5.4 backport applied (reuse in-kernel selinux services)")
 SIHEOF
 fi
 echo "=== [SUSFS] step 5: 5.4 has no seccomp syscall cache (added in 5.9) ==="
