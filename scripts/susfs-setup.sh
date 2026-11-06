@@ -429,145 +429,6 @@ print("selinux_hide.c: 5.4 backport applied (reuse in-kernel selinux services)")
 print("selinux_hide.c: status_lock/status_page remapped to selinux_state.ss->*")
 SIHEOF
 fi
-echo "=== [SUSFS] step 5: 5.4 has no seccomp syscall cache (added in 5.9) ==="
-SCC="$SUDIR/infra/seccomp_cache.c"
-if [ -f "$SCC" ] && ! grep -q ksu54_seccomp_stub "$SCC"; then
-cat > "$SCC" <<'SCCEOF'
-/* ksu54_seccomp_stub: Linux 5.4 has no seccomp syscall bitmap cache
- * (that landed in 5.9 together with struct action_cache). FinaSU only uses
- * these to pre-allow __NR_reboot for the manager uid; on 5.4 the syscall is
- * simply evaluated by the normal filter path, so both helpers are no-ops.
- */
-#include <linux/fs.h>
-#include <linux/seccomp.h>
-#include "klog.h" // IWYU pragma: keep
-#include "infra/seccomp_cache.h"
-
-void ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr)
-{
-(void)filter;
-(void)nr;
-}
-
-void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr)
-{
-(void)filter;
-(void)nr;
-}
-SCCEOF
-echo "seccomp_cache.c replaced with 5.4 no-op stub"
-fi
-
-echo "=== [SUSFS] step 5: 5.4 has no seccomp syscall cache (added in 5.9) ==="
-SCC="$SUDIR/infra/seccomp_cache.c"
-if [ -f "$SCC" ] && ! grep -q ksu54_seccomp_stub "$SCC"; then
-cat > "$SCC" <<'SCCEOF'
-/* ksu54_seccomp_stub: Linux 5.4 has no seccomp syscall bitmap cache
- * (that landed in 5.9 together with struct action_cache). FinaSU only uses
- * these to pre-allow __NR_reboot for the manager uid; on 5.4 the syscall is
- * simply evaluated by the normal filter path, so both helpers are no-ops.
- */
-#include <linux/fs.h>
-#include <linux/seccomp.h>
-#include "klog.h" // IWYU pragma: keep
-#include "infra/seccomp_cache.h"
-
-void ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr)
-{
-(void)filter;
-(void)nr;
-}
-
-void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr)
-{
-(void)filter;
-(void)nr;
-}
-SCCEOF
-echo "seccomp_cache.c replaced with 5.4 no-op stub"
-fi
-
-echo "=== [SUSFS] step 6: 5.4 fsnotify backport for pkg_observer.c ==="
-POB="$SUDIR/manager/pkg_observer.c"
-if [ -f "$POB" ] && ! grep -q ksu54_pkg_observer "$POB"; then
-python3 - <<'POBEOF'
-import base64
-src = base64.b64decode('Ly8gU1BEWC1MaWNlbnNlLUlkZW50aWZpZXI6IEdQTC0yLjAKLyoga3N1NTRfcGtnX29ic2VydmVyOiBMaW51eCA1LjQgYmFjay1wb3J0IG9mIEZpbmFTVSBwa2dfb2JzZXJ2ZXIuYyAqLwojaW5jbHVkZSA8bGludXgvbW9kdWxlLmg+CiNpbmNsdWRlIDxsaW51eC9mcy5oPgojaW5jbHVkZSA8bGludXgvbmFtZWkuaD4KI2luY2x1ZGUgPGxpbnV4L2Zzbm90aWZ5X2JhY2tlbmQuaD4KI2luY2x1ZGUgPGxpbnV4L3NjaGVkLmg+CiNpbmNsdWRlIDxsaW51eC9zbGFiLmg+CiNpbmNsdWRlIDxsaW51eC9yY3VsaXN0Lmg+CiNpbmNsdWRlIDxsaW51eC90YXNrX3dvcmsuaD4KI2luY2x1ZGUgPGxpbnV4L3ZlcnNpb24uaD4KI2luY2x1ZGUgImtsb2cuaCIKI2luY2x1ZGUgIm1hbmFnZXIvdGhyb25lX3RyYWNrZXIuaCIKCiNkZWZpbmUgTUFTS19TWVNURU0gKEZTX0NSRUFURSB8IEZTX01PVkUgfCBGU19FVkVOVF9PTl9DSElMRCkKCnN0cnVjdCB3YXRjaF9kaXIgewogICAgY29uc3QgY2hhciAqcGF0aDsKICAgIHUzMiBtYXNrOwogICAgc3RydWN0IHBhdGgga3BhdGg7CiAgICBzdHJ1Y3QgaW5vZGUgKmlub2RlOwogICAgc3RydWN0IGZzbm90aWZ5X21hcmsgKm1hcms7Cn07CgpzdGF0aWMgc3RydWN0IGZzbm90aWZ5X2dyb3VwICpnOwoKc3RhdGljIHZvaWQga3N1X3RyYWNrX3Rocm9uZV90d19mdW5jKHN0cnVjdCBjYWxsYmFja19oZWFkICpjYikKewogICAga2ZyZWUoY2IpOwogICAgaWYgKGN1cnJlbnQtPmZsYWdzICYgUEZfRVhJVElORykKICAgICAgICByZXR1cm47CiAgICB0cmFja190aHJvbmUoZmFsc2UpOwp9CgpzdGF0aWMgdm9pZCBrc3VfZGVmZXJfdHJhY2tfdGhyb25lKHZvaWQpCnsKICAgIHN0cnVjdCBjYWxsYmFja19oZWFkICpjYjsKCiAgICBpZiAoIShjdXJyZW50LT5mbGFncyAmIFBGX0tUSFJFQUQpKSB7CiAgICAgICAgY2IgPSBremFsbG9jKHNpemVvZigqY2IpLCBHRlBfS0VSTkVMKTsKICAgICAgICBpZiAoY2IpIHsKICAgICAgICAgICAgY2ItPmZ1bmMgPSBrc3VfdHJhY2tfdGhyb25lX3R3X2Z1bmM7CiAgICAgICAgICAgIGlmICghdGFza193b3JrX2FkZChjdXJyZW50LCBjYiwgdHJ1ZSkpCiAgICAgICAgICAgICAgICByZXR1cm47CiAgICAgICAgICAgIGtmcmVlKGNiKTsKICAgICAgICB9CiAgICB9CiAgICBwcl93YXJuKCJkZWZlciB0cmFja190aHJvbmUgZmFpbGVkLCBydW4gaXQgaW5saW5lIik7CiAgICB0cmFja190aHJvbmUoZmFsc2UpOwp9CgpzdGF0aWMgaW50IGtzdV9oYW5kbGVfZXZlbnQoc3RydWN0IGZzbm90aWZ5X2dyb3VwICpncm91cCwgc3RydWN0IGlub2RlICppbm9kZSwKICAgICAgICAgICAgICAgICAgICAgICAgICAgIHUzMiBtYXNrLCBjb25zdCB2b2lkICpkYXRhLCBpbnQgZGF0YV90eXBlLAogICAgICAgICAgICAgICAgICAgICAgICAgICAgY29uc3Qgc3RydWN0IHFzdHIgKmZpbGVfbmFtZSwgdTMyIGNvb2tpZSwKICAgICAgICAgICAgICAgICAgICAgICAgICAgIHN0cnVjdCBmc25vdGlmeV9pdGVyX2luZm8gKml0ZXJfaW5mbykKewogICAgKHZvaWQpZ3JvdXA7CiAgICAodm9pZClpbm9kZTsKICAgICh2b2lkKWRhdGE7CiAgICAodm9pZClkYXRhX3R5cGU7CiAgICAodm9pZCljb29raWU7CiAgICAodm9pZClpdGVyX2luZm87CgogICAgaWYgKCFmaWxlX25hbWUpCiAgICAgICAgcmV0dXJuIDA7CiAgICBpZiAobWFzayAmIEZTX0lTRElSKQogICAgICAgIHJldHVybiAwOwogICAgaWYgKGZpbGVfbmFtZS0+bGVuID09IDEzICYmICFtZW1jbXAoZmlsZV9uYW1lLT5uYW1lLCAicGFja2FnZXMubGlzdCIsIDEzKSkgewogICAgICAgIHByX2luZm8oInBhY2thZ2VzLmxpc3QgZGV0ZWN0ZWQ6ICV1IiwgbWFzayk7CiAgICAgICAga3N1X2RlZmVyX3RyYWNrX3Rocm9uZSgpOwogICAgfQogICAgcmV0dXJuIDA7Cn0KCnN0YXRpYyBjb25zdCBzdHJ1Y3QgZnNub3RpZnlfb3BzIGtzdV9vcHMgPSB7CiAgICAuaGFuZGxlX2V2ZW50ID0ga3N1X2hhbmRsZV9ldmVudCwKfTsKCnN0YXRpYyBpbnQgYWRkX21hcmtfb25faW5vZGUoc3RydWN0IGlub2RlICppbm9kZSwgdTMyIG1hc2ssIHN0cnVjdCBmc25vdGlmeV9tYXJrICoqb3V0KQp7CiAgICBzdHJ1Y3QgZnNub3RpZnlfbWFyayAqbTsKICAgIGludCByZXQ7CgogICAgbSA9IGt6YWxsb2Moc2l6ZW9mKCptKSwgR0ZQX0tFUk5FTCk7CiAgICBpZiAoIW0pCiAgICAgICAgcmV0dXJuIC1FTk9NRU07CiAgICBmc25vdGlmeV9pbml0X21hcmsobSwgZyk7CiAgICBtLT5tYXNrID0gbWFzazsKICAgIHJldCA9IGZzbm90aWZ5X2FkZF9pbm9kZV9tYXJrKG0sIGlub2RlLCAwKTsKICAgIGlmIChyZXQpIHsKICAgICAgICBmc25vdGlmeV9wdXRfbWFyayhtKTsKICAgICAgICByZXR1cm4gLUVJTlZBTDsKICAgIH0KICAgICpvdXQgPSBtOwogICAgcmV0dXJuIDA7Cn0KCnN0YXRpYyBpbnQgd2F0Y2hfb25lX2RpcihzdHJ1Y3Qgd2F0Y2hfZGlyICp3ZCkKewogICAgaW50IHJldDsKCiAgICByZXQgPSBrZXJuX3BhdGgod2QtPnBhdGgsIExPT0tVUF9GT0xMT1csICZ3ZC0+a3BhdGgpOwogICAgaWYgKHJldCkgewogICAgICAgIHByX2luZm8oInBhdGggbm90IHJlYWR5OiAlcyAoJWQpIiwgd2QtPnBhdGgsIHJldCk7CiAgICAgICAgcmV0dXJuIHJldDsKICAgIH0KICAgIHdkLT5pbm9kZSA9IGRfaW5vZGUod2QtPmtwYXRoLmRlbnRyeSk7CiAgICBpaG9sZCh3ZC0+aW5vZGUpOwogICAgcmV0ID0gYWRkX21hcmtfb25faW5vZGUod2QtPmlub2RlLCB3ZC0+bWFzaywgJndkLT5tYXJrKTsKICAgIGlmIChyZXQpIHsKICAgICAgICBwcl9lcnIoIkFkZCBtYXJrIGZhaWxlZCBmb3IgJXMgKCVkKSIsIHdkLT5wYXRoLCByZXQpOwogICAgICAgIHBhdGhfcHV0KCZ3ZC0+a3BhdGgpOwogICAgICAgIGlwdXQod2QtPmlub2RlKTsKICAgICAgICB3ZC0+aW5vZGUgPSBOVUxMOwogICAgICAgIHJldHVybiByZXQ7CiAgICB9CiAgICBwcl9pbmZvKCJ3YXRjaGluZyAlcyIsIHdkLT5wYXRoKTsKICAgIHJldHVybiAwOwp9CgpzdGF0aWMgdm9pZCB1bndhdGNoX29uZV9kaXIoc3RydWN0IHdhdGNoX2RpciAqd2QpCnsKICAgIGlmICh3ZC0+bWFyaykgewogICAgICAgIGZzbm90aWZ5X2Rlc3Ryb3lfbWFyayh3ZC0+bWFyaywgZyk7CiAgICAgICAgZnNub3RpZnlfcHV0X21hcmsod2QtPm1hcmspOwogICAgICAgIHdkLT5tYXJrID0gTlVMTDsKICAgIH0KICAgIGlmICh3ZC0+aW5vZGUpIHsKICAgICAgICBpcHV0KHdkLT5pbm9kZSk7CiAgICAgICAgd2QtPmlub2RlID0gTlVMTDsKICAgIH0KICAgIGlmICh3ZC0+a3BhdGguZGVudHJ5KSB7CiAgICAgICAgcGF0aF9wdXQoJndkLT5rcGF0aCk7CiAgICAgICAgbWVtc2V0KCZ3ZC0+a3BhdGgsIDAsIHNpemVvZih3ZC0+a3BhdGgpKTsKICAgIH0KfQoKc3RhdGljIHN0cnVjdCB3YXRjaF9kaXIgZ193YXRjaCA9IHsgLnBhdGggPSAiL2RhdGEvc3lzdGVtIiwgLm1hc2sgPSBNQVNLX1NZU1RFTSB9OwoKaW50IGtzdV9vYnNlcnZlcl9pbml0KHZvaWQpCnsKICAgIGludCByZXQ7CgogICAgZyA9IGZzbm90aWZ5X2FsbG9jX2dyb3VwKCZrc3Vfb3BzKTsKICAgIGlmIChJU19FUlIoZykpCiAgICAgICAgcmV0dXJuIFBUUl9FUlIoZyk7CiAgICByZXQgPSB3YXRjaF9vbmVfZGlyKCZnX3dhdGNoKTsKICAgIHByX2luZm8oIm9ic2VydmVyIGluaXQgZG9uZSIpOwogICAgcmV0dXJuIDA7Cn0KCnZvaWQga3N1X29ic2VydmVyX2V4aXQodm9pZCkKewogICAgdW53YXRjaF9vbmVfZGlyKCZnX3dhdGNoKTsKICAgIGZzbm90aWZ5X3B1dF9ncm91cChnKTsKICAgIHByX2luZm8oIm9ic2VydmVyIGV4aXQgZG9uZSIpOwp9Cg==').decode()
-open("KernelSU/kernel/manager/pkg_observer.c", "w").write(src)
-print("pkg_observer.c rewritten for 5.4 fsnotify API")
-POBEOF
-fi
-
-echo "=== [SUSFS] step 7: export 5.4 mount helpers + retarget FinaSU mount calls ==="
-# FinaSU calls path_mount()/path_umount() (Linux 5.8+). On 5.4 the equivalents
-# are do_mount() (non-static) and ksys_umount() (path-string based). Both are
-# unexported, so export them, then retarget the two FinaSU call sites.
-NSC="$KDIR/fs/namespace.c"
-if [ -f "$NSC" ] && ! grep -q 'EXPORT_SYMBOL(do_mount)' "$NSC"; then
-python3 - <<'NSCEOF'
-import base64
-src = base64.b64decode('cCA9ICJmcy9uYW1lc3BhY2UuYyIKcyA9IG9wZW4ocCkucmVhZCgpCgphbmNob3IgPSAibG9uZyBkb19tb3VudChjb25zdCBjaGFyICpkZXZfbmFtZSwgY29uc3QgY2hhciBfX3VzZXIgKmRpcl9uYW1lLCIKaWR4ID0gcy5maW5kKGFuY2hvcikKaWYgaWR4IDwgMDoKICAgIHJhaXNlIFN5c3RlbUV4aXQoImRvX21vdW50IGRlZmluaXRpb24gbm90IGZvdW5kIikKCmVuZCA9IHMuZmluZCgiXG59XG4iLCBpZHgpCmlmIGVuZCA8IDA6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJkb19tb3VudCBlbmQgbm90IGZvdW5kIikKZW5kICs9IDMKcyA9IHNbOmVuZF0gKyAiRVhQT1JUX1NZTUJPTChkb19tb3VudCk7XG4iICsgc1tlbmQ6XQoKaSA9IHMuZmluZCgiaW50IGtzeXNfdW1vdW50KGNoYXIgX191c2VyICpuYW1lLCBpbnQgZmxhZ3MpIikKaWYgaSA8IDA6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJrc3lzX3Vtb3VudCBkZWZpbml0aW9uIG5vdCBmb3VuZCIpCmogPSBzLmZpbmQoIlxufVxuIiwgaSkKaWYgaiA8IDA6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJrc3lzX3Vtb3VudCBlbmQgbm90IGZvdW5kIikKaiArPSAzCnMgPSBzWzpqXSArICJFWFBPUlRfU1lNQk9MKGtzeXNfdW1vdW50KTtcbiIgKyBzW2o6XQoKb3BlbihwLCAidyIpLndyaXRlKHMpCnByaW50KCJuYW1lc3BhY2UuYzogZXhwb3J0ZWQgZG9fbW91bnQgKyBrc3lzX3Vtb3VudCIpCg==').decode()
-exec(compile(src, '<nsc_fix>', 'exec'))
-NSCEOF
-fi
-SMN="$SUDIR/infra/su_mount_ns.c"
-if [ -f "$SMN" ] && grep -q 'path_mount' "$SMN"; then
-python3 - "$SMN" <<'SMNEOF'
-import sys, base64
-src = base64.b64decode('aW1wb3J0IHN5cwoKcCA9IHN5cy5hcmd2WzFdCnMgPSBvcGVuKHApLnJlYWQoKQoKb2xkID0gImV4dGVybiBpbnQgcGF0aF9tb3VudChjb25zdCBjaGFyICpkZXZfbmFtZSwgc3RydWN0IHBhdGggKnBhdGgsIGNvbnN0IGNoYXIgKnR5cGVfcGFnZSwgdW5zaWduZWQgbG9uZyBmbGFncyxcbiAgICAgICAgICAgICAgICAgICAgICB2b2lkICpkYXRhX3BhZ2UpOyIKbmV3ID0gKCIvKiA1LjQgaGFzIG5vIHBhdGhfbW91bnQoKTsgZG9fbW91bnQoKSB0YWtlcyBhIF9fdXNlciBkaXJfbmFtZS4gKi9cbiIKICAgICAgICJleHRlcm4gbG9uZyBkb19tb3VudChjb25zdCBjaGFyICpkZXZfbmFtZSwgY29uc3QgY2hhciBfX3VzZXIgKmRpcl9uYW1lLFxuIgogICAgICAgIiAgICAgICAgICAgICAgICAgICAgIGNvbnN0IGNoYXIgKnR5cGVfcGFnZSwgdW5zaWduZWQgbG9uZyBmbGFncyxcbiIKICAgICAgICIgICAgICAgICAgICAgICAgICAgICB2b2lkICpkYXRhX3BhZ2UpOyIpCmlmIG9sZCBub3QgaW4gczoKICAgIHJhaXNlIFN5c3RlbUV4aXQoInBhdGhfbW91bnQgZGVjbCBhbmNob3Igbm90IGZvdW5kIikKcyA9IHMucmVwbGFjZShvbGQsIG5ldywgMSkKCm9sZF9jYWxsID0gImludCBwbV9yZXQgPSBwYXRoX21vdW50KE5VTEwsICZyb290X3BhdGgsIE5VTEwsIE1TX1BSSVZBVEUgfCBNU19SRUMsIE5VTEwpOyIKbmV3X2NhbGwgPSAoImludCBwbV9yZXQ7XG4iCiAgICAgICAgICAgICIgICAge1xuIgogICAgICAgICAgICAiICAgICAgICBjaGFyICpkaXIgPSBrbWFsbG9jKFBBVEhfTUFYLCBHRlBfS0VSTkVMKTtcbiIKICAgICAgICAgICAgIiAgICAgICAgaWYgKGRpcikge1xuIgogICAgICAgICAgICAiICAgICAgICAgICAgY2hhciAqcDIgPSBkX3BhdGgoJnJvb3RfcGF0aCwgZGlyLCBQQVRIX01BWCk7XG4iCiAgICAgICAgICAgICIgICAgICAgICAgICBpZiAoIUlTX0VSUihwMikpIHtcbiIKICAgICAgICAgICAgIiAgICAgICAgICAgICAgICBtbV9zZWdtZW50X3Qgb2xkZnMgPSBnZXRfZnMoKTtcbiIKICAgICAgICAgICAgIiAgICAgICAgICAgICAgICBzZXRfZnMoS0VSTkVMX0RTKTtcbiIKICAgICAgICAgICAgIiAgICAgICAgICAgICAgICBwbV9yZXQgPSAoaW50KWRvX21vdW50KE5VTEwsIChjb25zdCBjaGFyIF9fdXNlciAqKXAyLFxuIgogICAgICAgICAgICAiICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBOVUxMLCBNU19QUklWQVRFIHwgTVNfUkVDLCBOVUxMKTtcbiIKICAgICAgICAgICAgIiAgICAgICAgICAgICAgICBzZXRfZnMob2xkZnMpO1xuIgogICAgICAgICAgICAiICAgICAgICAgICAgfSBlbHNlIHtcbiIKICAgICAgICAgICAgIiAgICAgICAgICAgICAgICBwbV9yZXQgPSAoaW50KVBUUl9FUlIocDIpO1xuIgogICAgICAgICAgICAiICAgICAgICAgICAgfVxuIgogICAgICAgICAgICAiICAgICAgICAgICAga2ZyZWUoZGlyKTtcbiIKICAgICAgICAgICAgIiAgICAgICAgfSBlbHNlIHtcbiIKICAgICAgICAgICAgIiAgICAgICAgICAgIHBtX3JldCA9IC1FTk9NRU07XG4iCiAgICAgICAgICAgICIgICAgICAgIH1cbiIKICAgICAgICAgICAgIiAgICB9IikKaWYgb2xkX2NhbGwgbm90IGluIHM6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJwYXRoX21vdW50IGNhbGwgYW5jaG9yIG5vdCBmb3VuZCIpCnMgPSBzLnJlcGxhY2Uob2xkX2NhbGwsIG5ld19jYWxsLCAxKQoKb3BlbihwLCAidyIpLndyaXRlKHMpCnByaW50KCJzdV9tb3VudF9ucy5jOiBwYXRoX21vdW50IC0+IGRvX21vdW50IikK').decode()
-sys.argv = ['smn_fix', sys.argv[1]]
-exec(compile(src, '<smn_fix>', 'exec'))
-SMNEOF
-fi
-KUM="$SUDIR/feature/kernel_umount.c"
-if [ -f "$KUM" ] && grep -q 'path_umount' "$KUM"; then
-python3 - "$KUM" <<'KUMEOF'
-import sys, base64
-src = base64.b64decode('aW1wb3J0IHN5cwoKcCA9IHN5cy5hcmd2WzFdCnMgPSBvcGVuKHApLnJlYWQoKQoKb2xkID0gImV4dGVybiBpbnQgcGF0aF91bW91bnQoc3RydWN0IHBhdGggKnBhdGgsIGludCBmbGFncyk7IgpuZXcgPSAoIi8qIDUuNCBoYXMgbm8gcGF0aF91bW91bnQoKTsga3N5c191bW91bnQoKSB0YWtlcyBhIHBhdGggc3RyaW5nLiAqL1xuIgogICAgICAgImV4dGVybiBpbnQga3N5c191bW91bnQoY2hhciBfX3VzZXIgKm5hbWUsIGludCBmbGFncyk7IikKaWYgb2xkIG5vdCBpbiBzOgogICAgcmFpc2UgU3lzdGVtRXhpdCgicGF0aF91bW91bnQgZGVjbCBhbmNob3Igbm90IGZvdW5kIikKcyA9IHMucmVwbGFjZShvbGQsIG5ldywgMSkKCm9sZF9mbiA9ICJzdGF0aWMgdm9pZCBrc3VfdW1vdW50X21udChjb25zdCBjaGFyICptbnQsIHN0cnVjdCBwYXRoICpwYXRoLCBpbnQgZmxhZ3MpXG57XG4gICAgaW50IGVyciA9IHBhdGhfdW1vdW50KHBhdGgsIGZsYWdzKTtcbiIKbmV3X2ZuID0gKCJzdGF0aWMgdm9pZCBrc3VfdW1vdW50X21udChjb25zdCBjaGFyICptbnQsIHN0cnVjdCBwYXRoICpwYXRoLCBpbnQgZmxhZ3MpXG4iCiAgICAgICAgICAie1xuIgogICAgICAgICAgIiAgICBpbnQgZXJyO1xuIgogICAgICAgICAgIiAgICBjaGFyICpkaXIgPSBrbWFsbG9jKFBBVEhfTUFYLCBHRlBfS0VSTkVMKTtcbiIKICAgICAgICAgICJcbiIKICAgICAgICAgICIgICAgaWYgKCFkaXIpXG4iCiAgICAgICAgICAiICAgICAgICByZXR1cm47XG4iCiAgICAgICAgICAiICAgIHtcbiIKICAgICAgICAgICIgICAgICAgIGNoYXIgKnAyID0gZF9wYXRoKHBhdGgsIGRpciwgUEFUSF9NQVgpO1xuIgogICAgICAgICAgIiAgICAgICAgaWYgKCFJU19FUlIocDIpKSB7XG4iCiAgICAgICAgICAiICAgICAgICAgICAgbW1fc2VnbWVudF90IG9sZGZzID0gZ2V0X2ZzKCk7XG4iCiAgICAgICAgICAiICAgICAgICAgICAgc2V0X2ZzKEtFUk5FTF9EUyk7XG4iCiAgICAgICAgICAiICAgICAgICAgICAgZXJyID0ga3N5c191bW91bnQoKGNoYXIgX191c2VyICopcDIsIGZsYWdzKTtcbiIKICAgICAgICAgICIgICAgICAgICAgICBzZXRfZnMob2xkZnMpO1xuIgogICAgICAgICAgIiAgICAgICAgfSBlbHNlIHtcbiIKICAgICAgICAgICIgICAgICAgICAgICBlcnIgPSAoaW50KVBUUl9FUlIocDIpO1xuIgogICAgICAgICAgIiAgICAgICAgfVxuIgogICAgICAgICAgIiAgICB9XG4iCiAgICAgICAgICAiICAgIGtmcmVlKGRpcik7XG4iKQppZiBvbGRfZm4gbm90IGluIHM6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJrc3VfdW1vdW50X21udCBib2R5IGFuY2hvciBub3QgZm91bmQiKQpzID0gcy5yZXBsYWNlKG9sZF9mbiwgbmV3X2ZuLCAxKQoKb3BlbihwLCAidyIpLndyaXRlKHMpCnByaW50KCJrZXJuZWxfdW1vdW50LmM6IHBhdGhfdW1vdW50IC0+IGtzeXNfdW1vdW50IikK').decode()
-sys.argv = ['kum_fix', sys.argv[1]]
-exec(compile(src, '<kum_fix>', 'exec'))
-KUMEOF
-fi
-echo "=== [SUSFS] step 8: satisfy ksu_handle_devpts referenced by fs/devpts/inode.c ==="
-# The vendor tree already carries the KernelSU/ReSukiSU devpts hook:
-#   #ifdef CONFIG_KSU
-#   extern int ksu_handle_devpts(struct inode *);
-#   ksu_handle_devpts(dentry->d_inode);
-#   #endif
-# FinaSU documents this hook but ships no implementation, so the link step
-# dies with "undefined symbol: ksu_handle_devpts". FinaSU's own docs mark the
-# function as dead code on modern trees, so provide the no-op definition here
-# instead of ripping the call out of fs/devpts/inode.c.
-SCT="$SUDIR/feature/sucompat.c"
-if [ -f "$SCT" ] && ! grep -q ksu_handle_devpts "$SCT"; then
-python3 - "$SCT" <<'DEVPEOF'
-import sys
-p = sys.argv[1]
-s = open(p, encoding='utf-8').read()
-add = (
-    chr(10) +
-    '/* ksu54_devpts_stub: the vendor fs/devpts/inode.c still calls this hook' + chr(10) +
-    ' * (carried over from the ReSukiSU era patch). FinaSU has no' + chr(10) +
-    ' * implementation and treats it as dead code, so define a no-op that the' + chr(10) +
-    ' * linker can satisfy. ' + chr(10) +
-    ' */' + chr(10) +
-    'int __maybe_unused ksu_handle_devpts(struct inode *inode)' + chr(10) +
-    '{' + chr(10) +
-    '    (void)inode;' + chr(10) +
-    '    return 0;' + chr(10) +
-    '}' + chr(10)
-)
-s = s + add
-open(p, 'w', encoding='utf-8').write(s)
-print('sucompat.c: ksu_handle_devpts no-op stub appended')
-DEVPEOF
-fi
-echo "=== [SUSFS] step 8b: guard fs/devpts/inode.c hook call behind the stub ==="
-DPT="$KDIR/fs/devpts/inode.c"
-if [ -f "$DPT" ] && grep -q ksu_handle_devpts "$DPT"; then
-  echo "fs/devpts/inode.c keeps ksu_handle_devpts call, stub provides the symbol"
-fi
-
 echo "=== [SUSFS] step4g: native-type oracle filter (snapshot pre-KSU policy types) ==="
 # 春秋/DirtySepolicy 的 context oracle 探测：KSU 注入的 type（含随机化后的 ksu_file、ksu 域）
 # 在原生 policy 里根本不存在 -> 三个 write 入口一律按"不存在"返回 -EINVAL。
@@ -824,6 +685,146 @@ print("selinux_hide.c: ctx-write log =", h.count("ksu54: ctx-write"),
 print("braces rules.c:", r.count("{") - r.count("}"),
       "| hide.c:", h.count("{") - h.count("}"))
 K54EOF
+
+echo "=== [SUSFS] step 5: 5.4 has no seccomp syscall cache (added in 5.9) ==="
+SCC="$SUDIR/infra/seccomp_cache.c"
+if [ -f "$SCC" ] && ! grep -q ksu54_seccomp_stub "$SCC"; then
+cat > "$SCC" <<'SCCEOF'
+/* ksu54_seccomp_stub: Linux 5.4 has no seccomp syscall bitmap cache
+ * (that landed in 5.9 together with struct action_cache). FinaSU only uses
+ * these to pre-allow __NR_reboot for the manager uid; on 5.4 the syscall is
+ * simply evaluated by the normal filter path, so both helpers are no-ops.
+ */
+#include <linux/fs.h>
+#include <linux/seccomp.h>
+#include "klog.h" // IWYU pragma: keep
+#include "infra/seccomp_cache.h"
+
+void ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr)
+{
+(void)filter;
+(void)nr;
+}
+
+void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr)
+{
+(void)filter;
+(void)nr;
+}
+SCCEOF
+echo "seccomp_cache.c replaced with 5.4 no-op stub"
+fi
+
+echo "=== [SUSFS] step 5: 5.4 has no seccomp syscall cache (added in 5.9) ==="
+SCC="$SUDIR/infra/seccomp_cache.c"
+if [ -f "$SCC" ] && ! grep -q ksu54_seccomp_stub "$SCC"; then
+cat > "$SCC" <<'SCCEOF'
+/* ksu54_seccomp_stub: Linux 5.4 has no seccomp syscall bitmap cache
+ * (that landed in 5.9 together with struct action_cache). FinaSU only uses
+ * these to pre-allow __NR_reboot for the manager uid; on 5.4 the syscall is
+ * simply evaluated by the normal filter path, so both helpers are no-ops.
+ */
+#include <linux/fs.h>
+#include <linux/seccomp.h>
+#include "klog.h" // IWYU pragma: keep
+#include "infra/seccomp_cache.h"
+
+void ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr)
+{
+(void)filter;
+(void)nr;
+}
+
+void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr)
+{
+(void)filter;
+(void)nr;
+}
+SCCEOF
+echo "seccomp_cache.c replaced with 5.4 no-op stub"
+fi
+
+echo "=== [SUSFS] step 6: 5.4 fsnotify backport for pkg_observer.c ==="
+POB="$SUDIR/manager/pkg_observer.c"
+if [ -f "$POB" ] && ! grep -q ksu54_pkg_observer "$POB"; then
+python3 - <<'POBEOF'
+import base64
+src = base64.b64decode('Ly8gU1BEWC1MaWNlbnNlLUlkZW50aWZpZXI6IEdQTC0yLjAKLyoga3N1NTRfcGtnX29ic2VydmVyOiBMaW51eCA1LjQgYmFjay1wb3J0IG9mIEZpbmFTVSBwa2dfb2JzZXJ2ZXIuYyAqLwojaW5jbHVkZSA8bGludXgvbW9kdWxlLmg+CiNpbmNsdWRlIDxsaW51eC9mcy5oPgojaW5jbHVkZSA8bGludXgvbmFtZWkuaD4KI2luY2x1ZGUgPGxpbnV4L2Zzbm90aWZ5X2JhY2tlbmQuaD4KI2luY2x1ZGUgPGxpbnV4L3NjaGVkLmg+CiNpbmNsdWRlIDxsaW51eC9zbGFiLmg+CiNpbmNsdWRlIDxsaW51eC9yY3VsaXN0Lmg+CiNpbmNsdWRlIDxsaW51eC90YXNrX3dvcmsuaD4KI2luY2x1ZGUgPGxpbnV4L3ZlcnNpb24uaD4KI2luY2x1ZGUgImtsb2cuaCIKI2luY2x1ZGUgIm1hbmFnZXIvdGhyb25lX3RyYWNrZXIuaCIKCiNkZWZpbmUgTUFTS19TWVNURU0gKEZTX0NSRUFURSB8IEZTX01PVkUgfCBGU19FVkVOVF9PTl9DSElMRCkKCnN0cnVjdCB3YXRjaF9kaXIgewogICAgY29uc3QgY2hhciAqcGF0aDsKICAgIHUzMiBtYXNrOwogICAgc3RydWN0IHBhdGgga3BhdGg7CiAgICBzdHJ1Y3QgaW5vZGUgKmlub2RlOwogICAgc3RydWN0IGZzbm90aWZ5X21hcmsgKm1hcms7Cn07CgpzdGF0aWMgc3RydWN0IGZzbm90aWZ5X2dyb3VwICpnOwoKc3RhdGljIHZvaWQga3N1X3RyYWNrX3Rocm9uZV90d19mdW5jKHN0cnVjdCBjYWxsYmFja19oZWFkICpjYikKewogICAga2ZyZWUoY2IpOwogICAgaWYgKGN1cnJlbnQtPmZsYWdzICYgUEZfRVhJVElORykKICAgICAgICByZXR1cm47CiAgICB0cmFja190aHJvbmUoZmFsc2UpOwp9CgpzdGF0aWMgdm9pZCBrc3VfZGVmZXJfdHJhY2tfdGhyb25lKHZvaWQpCnsKICAgIHN0cnVjdCBjYWxsYmFja19oZWFkICpjYjsKCiAgICBpZiAoIShjdXJyZW50LT5mbGFncyAmIFBGX0tUSFJFQUQpKSB7CiAgICAgICAgY2IgPSBremFsbG9jKHNpemVvZigqY2IpLCBHRlBfS0VSTkVMKTsKICAgICAgICBpZiAoY2IpIHsKICAgICAgICAgICAgY2ItPmZ1bmMgPSBrc3VfdHJhY2tfdGhyb25lX3R3X2Z1bmM7CiAgICAgICAgICAgIGlmICghdGFza193b3JrX2FkZChjdXJyZW50LCBjYiwgdHJ1ZSkpCiAgICAgICAgICAgICAgICByZXR1cm47CiAgICAgICAgICAgIGtmcmVlKGNiKTsKICAgICAgICB9CiAgICB9CiAgICBwcl93YXJuKCJkZWZlciB0cmFja190aHJvbmUgZmFpbGVkLCBydW4gaXQgaW5saW5lIik7CiAgICB0cmFja190aHJvbmUoZmFsc2UpOwp9CgpzdGF0aWMgaW50IGtzdV9oYW5kbGVfZXZlbnQoc3RydWN0IGZzbm90aWZ5X2dyb3VwICpncm91cCwgc3RydWN0IGlub2RlICppbm9kZSwKICAgICAgICAgICAgICAgICAgICAgICAgICAgIHUzMiBtYXNrLCBjb25zdCB2b2lkICpkYXRhLCBpbnQgZGF0YV90eXBlLAogICAgICAgICAgICAgICAgICAgICAgICAgICAgY29uc3Qgc3RydWN0IHFzdHIgKmZpbGVfbmFtZSwgdTMyIGNvb2tpZSwKICAgICAgICAgICAgICAgICAgICAgICAgICAgIHN0cnVjdCBmc25vdGlmeV9pdGVyX2luZm8gKml0ZXJfaW5mbykKewogICAgKHZvaWQpZ3JvdXA7CiAgICAodm9pZClpbm9kZTsKICAgICh2b2lkKWRhdGE7CiAgICAodm9pZClkYXRhX3R5cGU7CiAgICAodm9pZCljb29raWU7CiAgICAodm9pZClpdGVyX2luZm87CgogICAgaWYgKCFmaWxlX25hbWUpCiAgICAgICAgcmV0dXJuIDA7CiAgICBpZiAobWFzayAmIEZTX0lTRElSKQogICAgICAgIHJldHVybiAwOwogICAgaWYgKGZpbGVfbmFtZS0+bGVuID09IDEzICYmICFtZW1jbXAoZmlsZV9uYW1lLT5uYW1lLCAicGFja2FnZXMubGlzdCIsIDEzKSkgewogICAgICAgIHByX2luZm8oInBhY2thZ2VzLmxpc3QgZGV0ZWN0ZWQ6ICV1IiwgbWFzayk7CiAgICAgICAga3N1X2RlZmVyX3RyYWNrX3Rocm9uZSgpOwogICAgfQogICAgcmV0dXJuIDA7Cn0KCnN0YXRpYyBjb25zdCBzdHJ1Y3QgZnNub3RpZnlfb3BzIGtzdV9vcHMgPSB7CiAgICAuaGFuZGxlX2V2ZW50ID0ga3N1X2hhbmRsZV9ldmVudCwKfTsKCnN0YXRpYyBpbnQgYWRkX21hcmtfb25faW5vZGUoc3RydWN0IGlub2RlICppbm9kZSwgdTMyIG1hc2ssIHN0cnVjdCBmc25vdGlmeV9tYXJrICoqb3V0KQp7CiAgICBzdHJ1Y3QgZnNub3RpZnlfbWFyayAqbTsKICAgIGludCByZXQ7CgogICAgbSA9IGt6YWxsb2Moc2l6ZW9mKCptKSwgR0ZQX0tFUk5FTCk7CiAgICBpZiAoIW0pCiAgICAgICAgcmV0dXJuIC1FTk9NRU07CiAgICBmc25vdGlmeV9pbml0X21hcmsobSwgZyk7CiAgICBtLT5tYXNrID0gbWFzazsKICAgIHJldCA9IGZzbm90aWZ5X2FkZF9pbm9kZV9tYXJrKG0sIGlub2RlLCAwKTsKICAgIGlmIChyZXQpIHsKICAgICAgICBmc25vdGlmeV9wdXRfbWFyayhtKTsKICAgICAgICByZXR1cm4gLUVJTlZBTDsKICAgIH0KICAgICpvdXQgPSBtOwogICAgcmV0dXJuIDA7Cn0KCnN0YXRpYyBpbnQgd2F0Y2hfb25lX2RpcihzdHJ1Y3Qgd2F0Y2hfZGlyICp3ZCkKewogICAgaW50IHJldDsKCiAgICByZXQgPSBrZXJuX3BhdGgod2QtPnBhdGgsIExPT0tVUF9GT0xMT1csICZ3ZC0+a3BhdGgpOwogICAgaWYgKHJldCkgewogICAgICAgIHByX2luZm8oInBhdGggbm90IHJlYWR5OiAlcyAoJWQpIiwgd2QtPnBhdGgsIHJldCk7CiAgICAgICAgcmV0dXJuIHJldDsKICAgIH0KICAgIHdkLT5pbm9kZSA9IGRfaW5vZGUod2QtPmtwYXRoLmRlbnRyeSk7CiAgICBpaG9sZCh3ZC0+aW5vZGUpOwogICAgcmV0ID0gYWRkX21hcmtfb25faW5vZGUod2QtPmlub2RlLCB3ZC0+bWFzaywgJndkLT5tYXJrKTsKICAgIGlmIChyZXQpIHsKICAgICAgICBwcl9lcnIoIkFkZCBtYXJrIGZhaWxlZCBmb3IgJXMgKCVkKSIsIHdkLT5wYXRoLCByZXQpOwogICAgICAgIHBhdGhfcHV0KCZ3ZC0+a3BhdGgpOwogICAgICAgIGlwdXQod2QtPmlub2RlKTsKICAgICAgICB3ZC0+aW5vZGUgPSBOVUxMOwogICAgICAgIHJldHVybiByZXQ7CiAgICB9CiAgICBwcl9pbmZvKCJ3YXRjaGluZyAlcyIsIHdkLT5wYXRoKTsKICAgIHJldHVybiAwOwp9CgpzdGF0aWMgdm9pZCB1bndhdGNoX29uZV9kaXIoc3RydWN0IHdhdGNoX2RpciAqd2QpCnsKICAgIGlmICh3ZC0+bWFyaykgewogICAgICAgIGZzbm90aWZ5X2Rlc3Ryb3lfbWFyayh3ZC0+bWFyaywgZyk7CiAgICAgICAgZnNub3RpZnlfcHV0X21hcmsod2QtPm1hcmspOwogICAgICAgIHdkLT5tYXJrID0gTlVMTDsKICAgIH0KICAgIGlmICh3ZC0+aW5vZGUpIHsKICAgICAgICBpcHV0KHdkLT5pbm9kZSk7CiAgICAgICAgd2QtPmlub2RlID0gTlVMTDsKICAgIH0KICAgIGlmICh3ZC0+a3BhdGguZGVudHJ5KSB7CiAgICAgICAgcGF0aF9wdXQoJndkLT5rcGF0aCk7CiAgICAgICAgbWVtc2V0KCZ3ZC0+a3BhdGgsIDAsIHNpemVvZih3ZC0+a3BhdGgpKTsKICAgIH0KfQoKc3RhdGljIHN0cnVjdCB3YXRjaF9kaXIgZ193YXRjaCA9IHsgLnBhdGggPSAiL2RhdGEvc3lzdGVtIiwgLm1hc2sgPSBNQVNLX1NZU1RFTSB9OwoKaW50IGtzdV9vYnNlcnZlcl9pbml0KHZvaWQpCnsKICAgIGludCByZXQ7CgogICAgZyA9IGZzbm90aWZ5X2FsbG9jX2dyb3VwKCZrc3Vfb3BzKTsKICAgIGlmIChJU19FUlIoZykpCiAgICAgICAgcmV0dXJuIFBUUl9FUlIoZyk7CiAgICByZXQgPSB3YXRjaF9vbmVfZGlyKCZnX3dhdGNoKTsKICAgIHByX2luZm8oIm9ic2VydmVyIGluaXQgZG9uZSIpOwogICAgcmV0dXJuIDA7Cn0KCnZvaWQga3N1X29ic2VydmVyX2V4aXQodm9pZCkKewogICAgdW53YXRjaF9vbmVfZGlyKCZnX3dhdGNoKTsKICAgIGZzbm90aWZ5X3B1dF9ncm91cChnKTsKICAgIHByX2luZm8oIm9ic2VydmVyIGV4aXQgZG9uZSIpOwp9Cg==').decode()
+open("KernelSU/kernel/manager/pkg_observer.c", "w").write(src)
+print("pkg_observer.c rewritten for 5.4 fsnotify API")
+POBEOF
+fi
+
+echo "=== [SUSFS] step 7: export 5.4 mount helpers + retarget FinaSU mount calls ==="
+# FinaSU calls path_mount()/path_umount() (Linux 5.8+). On 5.4 the equivalents
+# are do_mount() (non-static) and ksys_umount() (path-string based). Both are
+# unexported, so export them, then retarget the two FinaSU call sites.
+NSC="$KDIR/fs/namespace.c"
+if [ -f "$NSC" ] && ! grep -q 'EXPORT_SYMBOL(do_mount)' "$NSC"; then
+python3 - <<'NSCEOF'
+import base64
+src = base64.b64decode('cCA9ICJmcy9uYW1lc3BhY2UuYyIKcyA9IG9wZW4ocCkucmVhZCgpCgphbmNob3IgPSAibG9uZyBkb19tb3VudChjb25zdCBjaGFyICpkZXZfbmFtZSwgY29uc3QgY2hhciBfX3VzZXIgKmRpcl9uYW1lLCIKaWR4ID0gcy5maW5kKGFuY2hvcikKaWYgaWR4IDwgMDoKICAgIHByaW50KCJkb19tb3VudCBkZWZpbml0aW9uIG5vdCBmb3VuZCwgc2tpcHBlZCIpCiAgICByYWlzZSBTeXN0ZW1FeGl0KDApCgplbmQgPSBzLmZpbmQoIlxufVxuIiwgaWR4KQppZiBlbmQgPCAwOgogICAgcHJpbnQoImRvX21vdW50IGVuZCBub3QgZm91bmQsIHNraXBwZWQiKQogICAgcmFpc2UgU3lzdGVtRXhpdCgwKQplbmQgKz0gMwpzID0gc1s6ZW5kXSArICJFWFBPUlRfU1lNQk9MKGRvX21vdW50KTtcbiIgKyBzW2VuZDpdCgppID0gcy5maW5kKCJpbnQga3N5c191bW91bnQoY2hhciBfX3VzZXIgKm5hbWUsIGludCBmbGFncykiKQppZiBpIDwgMDoKICAgIHByaW50KCJrc3lzX3Vtb3VudCBkZWZpbml0aW9uIG5vdCBmb3VuZCwgc2tpcHBlZCIpCiAgICByYWlzZSBTeXN0ZW1FeGl0KDApCmogPSBzLmZpbmQoIlxufVxuIiwgaSkKaWYgaiA8IDA6CiAgICBwcmludCgia3N5c191bW91bnQgZW5kIG5vdCBmb3VuZCwgc2tpcHBlZCIpCiAgICByYWlzZSBTeXN0ZW1FeGl0KDApCmogKz0gMwpzID0gc1s6al0gKyAiRVhQT1JUX1NZTUJPTChrc3lzX3Vtb3VudCk7XG4iICsgc1tqOl0KCm9wZW4ocCwgInciKS53cml0ZShzKQpwcmludCgibmFtZXNwYWNlLmM6IGV4cG9ydGVkIGRvX21vdW50ICsga3N5c191bW91bnQiKQo=').decode()
+exec(compile(src, '<nsc_fix>', 'exec'))
+NSCEOF
+fi
+SMN="$SUDIR/infra/su_mount_ns.c"
+if [ -f "$SMN" ] && grep -q 'path_mount' "$SMN"; then
+python3 - "$SMN" <<'SMNEOF'
+import sys, base64
+src = base64.b64decode('aW1wb3J0IHN5cwoKcCA9IHN5cy5hcmd2WzFdCnMgPSBvcGVuKHApLnJlYWQoKQoKb2xkID0gImV4dGVybiBpbnQgcGF0aF9tb3VudChjb25zdCBjaGFyICpkZXZfbmFtZSwgc3RydWN0IHBhdGggKnBhdGgsIGNvbnN0IGNoYXIgKnR5cGVfcGFnZSwgdW5zaWduZWQgbG9uZyBmbGFncyxcbiAgICAgICAgICAgICAgICAgICAgICB2b2lkICpkYXRhX3BhZ2UpOyIKbmV3ID0gKCIvKiA1LjQgaGFzIG5vIHBhdGhfbW91bnQoKTsgZG9fbW91bnQoKSB0YWtlcyBhIF9fdXNlciBkaXJfbmFtZS4gKi9cbiIKICAgICAgICJleHRlcm4gbG9uZyBkb19tb3VudChjb25zdCBjaGFyICpkZXZfbmFtZSwgY29uc3QgY2hhciBfX3VzZXIgKmRpcl9uYW1lLFxuIgogICAgICAgIiAgICAgICAgICAgICAgICAgICAgIGNvbnN0IGNoYXIgKnR5cGVfcGFnZSwgdW5zaWduZWQgbG9uZyBmbGFncyxcbiIKICAgICAgICIgICAgICAgICAgICAgICAgICAgICB2b2lkICpkYXRhX3BhZ2UpOyIpCmlmIG9sZCBub3QgaW4gczoKICAgIHByaW50KCJwYXRoX21vdW50IGRlY2wgYW5jaG9yIG5vdCBmb3VuZCwgc2tpcHBlZCIpCiAgICByYWlzZSBTeXN0ZW1FeGl0KDApCnMgPSBzLnJlcGxhY2Uob2xkLCBuZXcsIDEpCgpvbGRfY2FsbCA9ICJpbnQgcG1fcmV0ID0gcGF0aF9tb3VudChOVUxMLCAmcm9vdF9wYXRoLCBOVUxMLCBNU19QUklWQVRFIHwgTVNfUkVDLCBOVUxMKTsiCm5ld19jYWxsID0gKCJpbnQgcG1fcmV0O1xuIgogICAgICAgICAgICAiICAgIHtcbiIKICAgICAgICAgICAgIiAgICAgICAgY2hhciAqZGlyID0ga21hbGxvYyhQQVRIX01BWCwgR0ZQX0tFUk5FTCk7XG4iCiAgICAgICAgICAgICIgICAgICAgIGlmIChkaXIpIHtcbiIKICAgICAgICAgICAgIiAgICAgICAgICAgIGNoYXIgKnAyID0gZF9wYXRoKCZyb290X3BhdGgsIGRpciwgUEFUSF9NQVgpO1xuIgogICAgICAgICAgICAiICAgICAgICAgICAgaWYgKCFJU19FUlIocDIpKSB7XG4iCiAgICAgICAgICAgICIgICAgICAgICAgICAgICAgbW1fc2VnbWVudF90IG9sZGZzID0gZ2V0X2ZzKCk7XG4iCiAgICAgICAgICAgICIgICAgICAgICAgICAgICAgc2V0X2ZzKEtFUk5FTF9EUyk7XG4iCiAgICAgICAgICAgICIgICAgICAgICAgICAgICAgcG1fcmV0ID0gKGludClkb19tb3VudChOVUxMLCAoY29uc3QgY2hhciBfX3VzZXIgKilwMixcbiIKICAgICAgICAgICAgIiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgTlVMTCwgTVNfUFJJVkFURSB8IE1TX1JFQywgTlVMTCk7XG4iCiAgICAgICAgICAgICIgICAgICAgICAgICAgICAgc2V0X2ZzKG9sZGZzKTtcbiIKICAgICAgICAgICAgIiAgICAgICAgICAgIH0gZWxzZSB7XG4iCiAgICAgICAgICAgICIgICAgICAgICAgICAgICAgcG1fcmV0ID0gKGludClQVFJfRVJSKHAyKTtcbiIKICAgICAgICAgICAgIiAgICAgICAgICAgIH1cbiIKICAgICAgICAgICAgIiAgICAgICAgICAgIGtmcmVlKGRpcik7XG4iCiAgICAgICAgICAgICIgICAgICAgIH0gZWxzZSB7XG4iCiAgICAgICAgICAgICIgICAgICAgICAgICBwbV9yZXQgPSAtRU5PTUVNO1xuIgogICAgICAgICAgICAiICAgICAgICB9XG4iCiAgICAgICAgICAgICIgICAgfSIpCmlmIG9sZF9jYWxsIG5vdCBpbiBzOgogICAgcHJpbnQoInBhdGhfbW91bnQgY2FsbCBhbmNob3Igbm90IGZvdW5kLCBza2lwcGVkIikKICAgIHJhaXNlIFN5c3RlbUV4aXQoMCkKcyA9IHMucmVwbGFjZShvbGRfY2FsbCwgbmV3X2NhbGwsIDEpCgpvcGVuKHAsICJ3Iikud3JpdGUocykKcHJpbnQoInN1X21vdW50X25zLmM6IHBhdGhfbW91bnQgLT4gZG9fbW91bnQiKQo=').decode()
+sys.argv = ['smn_fix', sys.argv[1]]
+exec(compile(src, '<smn_fix>', 'exec'))
+SMNEOF
+fi
+KUM="$SUDIR/feature/kernel_umount.c"
+if [ -f "$KUM" ] && grep -q 'path_umount' "$KUM"; then
+python3 - "$KUM" <<'KUMEOF'
+import sys, base64
+src = base64.b64decode('aW1wb3J0IHN5cwoKcCA9IHN5cy5hcmd2WzFdCnMgPSBvcGVuKHApLnJlYWQoKQoKb2xkID0gImV4dGVybiBpbnQgcGF0aF91bW91bnQoc3RydWN0IHBhdGggKnBhdGgsIGludCBmbGFncyk7IgpuZXcgPSAoIi8qIDUuNCBoYXMgbm8gcGF0aF91bW91bnQoKTsga3N5c191bW91bnQoKSB0YWtlcyBhIHBhdGggc3RyaW5nLiAqL1xuIgogICAgICAgImV4dGVybiBpbnQga3N5c191bW91bnQoY2hhciBfX3VzZXIgKm5hbWUsIGludCBmbGFncyk7IikKaWYgb2xkIG5vdCBpbiBzOgogICAgcHJpbnQoInBhdGhfdW1vdW50IGRlY2wgYW5jaG9yIG5vdCBmb3VuZCwgc2tpcHBlZCIpCiAgICByYWlzZSBTeXN0ZW1FeGl0KDApCnMgPSBzLnJlcGxhY2Uob2xkLCBuZXcsIDEpCgpvbGRfZm4gPSAic3RhdGljIHZvaWQga3N1X3Vtb3VudF9tbnQoY29uc3QgY2hhciAqbW50LCBzdHJ1Y3QgcGF0aCAqcGF0aCwgaW50IGZsYWdzKVxue1xuICAgIGludCBlcnIgPSBwYXRoX3Vtb3VudChwYXRoLCBmbGFncyk7XG4iCm5ld19mbiA9ICgic3RhdGljIHZvaWQga3N1X3Vtb3VudF9tbnQoY29uc3QgY2hhciAqbW50LCBzdHJ1Y3QgcGF0aCAqcGF0aCwgaW50IGZsYWdzKVxuIgogICAgICAgICAgIntcbiIKICAgICAgICAgICIgICAgaW50IGVycjtcbiIKICAgICAgICAgICIgICAgY2hhciAqZGlyID0ga21hbGxvYyhQQVRIX01BWCwgR0ZQX0tFUk5FTCk7XG4iCiAgICAgICAgICAiXG4iCiAgICAgICAgICAiICAgIGlmICghZGlyKVxuIgogICAgICAgICAgIiAgICAgICAgcmV0dXJuO1xuIgogICAgICAgICAgIiAgICB7XG4iCiAgICAgICAgICAiICAgICAgICBjaGFyICpwMiA9IGRfcGF0aChwYXRoLCBkaXIsIFBBVEhfTUFYKTtcbiIKICAgICAgICAgICIgICAgICAgIGlmICghSVNfRVJSKHAyKSkge1xuIgogICAgICAgICAgIiAgICAgICAgICAgIG1tX3NlZ21lbnRfdCBvbGRmcyA9IGdldF9mcygpO1xuIgogICAgICAgICAgIiAgICAgICAgICAgIHNldF9mcyhLRVJORUxfRFMpO1xuIgogICAgICAgICAgIiAgICAgICAgICAgIGVyciA9IGtzeXNfdW1vdW50KChjaGFyIF9fdXNlciAqKXAyLCBmbGFncyk7XG4iCiAgICAgICAgICAiICAgICAgICAgICAgc2V0X2ZzKG9sZGZzKTtcbiIKICAgICAgICAgICIgICAgICAgIH0gZWxzZSB7XG4iCiAgICAgICAgICAiICAgICAgICAgICAgZXJyID0gKGludClQVFJfRVJSKHAyKTtcbiIKICAgICAgICAgICIgICAgICAgIH1cbiIKICAgICAgICAgICIgICAgfVxuIgogICAgICAgICAgIiAgICBrZnJlZShkaXIpO1xuIikKaWYgb2xkX2ZuIG5vdCBpbiBzOgogICAgcHJpbnQoImtzdV91bW91bnRfbW50IGJvZHkgYW5jaG9yIG5vdCBmb3VuZCwgc2tpcHBlZCIpCiAgICByYWlzZSBTeXN0ZW1FeGl0KDApCnMgPSBzLnJlcGxhY2Uob2xkX2ZuLCBuZXdfZm4sIDEpCgpvcGVuKHAsICJ3Iikud3JpdGUocykKcHJpbnQoImtlcm5lbF91bW91bnQuYzogcGF0aF91bW91bnQgLT4ga3N5c191bW91bnQiKQo=').decode()
+sys.argv = ['kum_fix', sys.argv[1]]
+exec(compile(src, '<kum_fix>', 'exec'))
+KUMEOF
+fi
+echo "=== [SUSFS] step 8: satisfy ksu_handle_devpts referenced by fs/devpts/inode.c ==="
+# The vendor tree already carries the KernelSU/ReSukiSU devpts hook:
+#   #ifdef CONFIG_KSU
+#   extern int ksu_handle_devpts(struct inode *);
+#   ksu_handle_devpts(dentry->d_inode);
+#   #endif
+# FinaSU documents this hook but ships no implementation, so the link step
+# dies with "undefined symbol: ksu_handle_devpts". FinaSU's own docs mark the
+# function as dead code on modern trees, so provide the no-op definition here
+# instead of ripping the call out of fs/devpts/inode.c.
+SCT="$SUDIR/feature/sucompat.c"
+if [ -f "$SCT" ] && ! grep -q ksu_handle_devpts "$SCT"; then
+python3 - "$SCT" <<'DEVPEOF'
+import sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+add = (
+    chr(10) +
+    '/* ksu54_devpts_stub: the vendor fs/devpts/inode.c still calls this hook' + chr(10) +
+    ' * (carried over from the ReSukiSU era patch). FinaSU has no' + chr(10) +
+    ' * implementation and treats it as dead code, so define a no-op that the' + chr(10) +
+    ' * linker can satisfy. ' + chr(10) +
+    ' */' + chr(10) +
+    'int __maybe_unused ksu_handle_devpts(struct inode *inode)' + chr(10) +
+    '{' + chr(10) +
+    '    (void)inode;' + chr(10) +
+    '    return 0;' + chr(10) +
+    '}' + chr(10)
+)
+s = s + add
+open(p, 'w', encoding='utf-8').write(s)
+print('sucompat.c: ksu_handle_devpts no-op stub appended')
+DEVPEOF
+fi
+echo "=== [SUSFS] step 8b: guard fs/devpts/inode.c hook call behind the stub ==="
+DPT="$KDIR/fs/devpts/inode.c"
+if [ -f "$DPT" ] && grep -q ksu_handle_devpts "$DPT"; then
+  echo "fs/devpts/inode.c keeps ksu_handle_devpts call, stub provides the symbol"
+fi
+
 
 echo "=== [SUSFS] verification ==="
 grep -n 'susfs_set_current_proc_no_su\|for_zygote_next' include/linux/susfs_def.h
