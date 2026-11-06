@@ -110,6 +110,9 @@ jobs:
 
           make -j$(nproc) O=out venus_defconfig
 
+          # ---- 功耗调优：input boost 关、io-is-busy 关、schedutil 走 PELT ----
+          bash ../ci/scripts/sched-tune.sh "$PWD"
+
           ./scripts/config --file out/.config \
             --enable KPROBES --enable KSU --enable KSU_SUSFS \
             --enable KSU_SUSFS_SUS_PATH --enable KSU_SUSFS_SUS_MOUNT \
@@ -119,7 +122,11 @@ jobs:
             --enable KSU_SUSFS_OPEN_REDIRECT --enable KSU_SUSFS_SUS_MAP \
             --enable KSU_DYNAMIC_MANAGER
 
+          # ---- 功耗调优：默认 governor = schedutil ----
+          bash ../ci/scripts/power-tune.sh "$PWD"
           make -j$(nproc) O=out olddefconfig
+          bash ../ci/scripts/power-tune.sh "$PWD" verify
+          bash ../ci/scripts/sched-tune.sh "$PWD" verify
 
           echo "=== SUSFS / KSU config check ==="
           grep -E 'CONFIG_KSU|CONFIG_SUSFS|CONFIG_KPROBES|CONFIG_THREAD_INFO' out/.config || true
