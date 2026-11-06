@@ -579,18 +579,24 @@ void ksu54_snapshot_native_types(void)
 	int cap = 0, n = 0;
 	u32 i;
 
-	/* 只尝试一次：apply_kernelsu_rules 可能被多次调用，重试会抓到
-	 * 已被 KSU 注入污染的 policy。 */
+	/* only try once: apply_kernelsu_rules may run multiple times, a retry
+	 * would snapshot an already KSU-polluted policy */
 	if (ksu54_snapshot_tried)
 		return;
 	ksu54_snapshot_tried = true;
 
-	if (!selinux_state.ss || !selinux_state.ss->policydb.p_types.htable) {
-		pr_warn("ksu54: snapshot skipped, policy not loaded yet\n");
+	if (!selinux_state.ss) {
+		pr_warn("ksu54: snapshot skipped, selinux_state.ss is NULL\n");
 		return;
 	}
 	pol = &selinux_state.ss->policydb;
-	ht = &pol->p_types;
+	/* 5.4 ??: struct policydb { struct symtab p_types; },
+	 * struct symtab { struct hashtab *table; } */
+	ht = pol->p_types.table;
+	if (!ht) {
+		pr_warn("ksu54: snapshot skipped, p_types.table is NULL\n");
+		return;
+	}
 
 	for (i = 0; i < ht->size; i++) {
 		struct hashtab_node *node;
