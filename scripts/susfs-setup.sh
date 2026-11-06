@@ -420,8 +420,11 @@ static void security_compute_av_user_with_policy(struct selinux_policy *policy, 
 /* ksu54_selinux_hide_54 done */
 '''
 
-io.open(P, "w", encoding="utf-8").write(head + tail + ADD)
+mid = (head + tail).replace("selinux_state.status_lock", "selinux_state.ss->status_lock")
+mid = mid.replace("selinux_state.status_page", "selinux_state.ss->status_page")
+io.open(P, "w", encoding="utf-8").write(mid + ADD)
 print("selinux_hide.c: 5.4 backport applied (reuse in-kernel selinux services)")
+print("selinux_hide.c: status_lock/status_page remapped to selinux_state.ss->*")
 SIHEOF
 fi
 echo "=== [SUSFS] step 5: 5.4 has no seccomp syscall cache (added in 5.9) ==="
