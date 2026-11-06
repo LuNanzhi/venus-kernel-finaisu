@@ -50,6 +50,12 @@ jobs:
             "https://github.com/${{ inputs.kernel_repo || 'cvbyisme/android_kernel_xiaomi_sm8350_miyume' }}.git" kernel
           echo "kernel HEAD: $(git -C kernel rev-parse --short HEAD)"
 
+      # 功耗调优：内核调度源码补丁（input boost 默认关、io-is-busy 默认关、
+      # schedutil 强制 PELT 信号路径——WALT 信号路径在本机会卡小米 logo）。
+      - name: Scheduler power patches (input-boost off, io-is-busy off, schedutil PELT)
+        run: |
+          bash ci/scripts/sched-tune.sh "$PWD/kernel"
+
       - name: Clone FinaSU into KernelSU/
         run: |
           rm -rf kernel/KernelSU
@@ -179,7 +185,11 @@ jobs:
               --enable KSU_SUSFS_OPEN_REDIRECT --enable KSU_SUSFS_SUS_MAP \
               --enable KSU_DYNAMIC_MANAGER
           fi
+          # ---- 功耗调优：默认 governor = schedutil ----
+          bash ../ci/scripts/power-tune.sh "$PWD"
           make -j$(nproc) O=out olddefconfig
+          bash ../ci/scripts/power-tune.sh "$PWD" verify
+          bash ../ci/scripts/sched-tune.sh "$PWD" verify
 
           # flask.h 是 security/selinux 目录构建时才生成的（out/security/selinux/flask.h），
           # 但 kernelsu 的 objsec.h 会 include 它；先单独生成，避免竞态。
@@ -231,7 +241,10 @@ jobs:
           ./scripts/config --file out/.config --set-str LOCALVERSION ""
           ./scripts/config --file out/.config --disable LOCALVERSION_AUTO
 
+          # ---- 功耗调优：默认 governor = schedutil ----
+          bash ../ci/scripts/power-tune.sh "$PWD"
           make -j$(nproc) O=out olddefconfig
+          bash ../ci/scripts/power-tune.sh "$PWD" verify
 
           # 与门禁同理：先确保 flask.h 已生成，避免与 selinux 目录构建竞态
           make -j$(nproc) O=out security/selinux/flask.h \
@@ -253,6 +266,9 @@ jobs:
               MISSING=1
             fi
           done
+          # ---- 功耗调优门禁 ----
+          bash ../ci/scripts/power-tune.sh "$PWD" verify || MISSING=1
+          bash ../ci/scripts/sched-tune.sh "$PWD" verify || MISSING=1
           if [ "${{ inputs.disable_susfs || 'false' }}" = "true" ]; then
             RESIDUE=$(grep -E 'CONFIG_KSU_SUSFS' out/.config | grep '=y' || true)
             if [ -n "$RESIDUE" ]; then

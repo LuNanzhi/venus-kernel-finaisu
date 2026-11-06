@@ -98,7 +98,12 @@ jobs:
           clang --version
           make -j$(nproc) O=out venus_defconfig
           ./scripts/config --file out/.config --disable KSU --disable KSU_SUSFS || true
+          # ---- 功耗调优：input boost 关、io-is-busy 关、schedutil 走 PELT ----
+          bash ../ci/scripts/sched-tune.sh "$PWD"
+          bash ../ci/scripts/power-tune.sh "$PWD"
           make -j$(nproc) O=out olddefconfig
+          bash ../ci/scripts/power-tune.sh "$PWD" verify
+          bash ../ci/scripts/sched-tune.sh "$PWD" verify
           echo '=== KSU check (should be empty) ==='
           grep -E 'CONFIG_KSU' out/.config || echo 'KSU not set - OK'
           echo '=== kernel version ==='
