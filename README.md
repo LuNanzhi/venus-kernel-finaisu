@@ -98,7 +98,7 @@ ccflags-y += -include $(srctree)/include/linux/ksu54_compat.h
 
 | 文件 | 作用 |
 |---|---|
-| `build-susfs.yml` | **主构建**：FinaSU + SUSFS + 内置 ksud（准备废弃） |
+| `build-susfs.yml` | **主构建**：FinaSU + SUSFS + 功耗调优（PELT）+ 内置 ksud（准备废弃） |
 | `pure.yml` | 不带 root 的纯净内核 |
 | `pack.yml` / `pack-pure.yml` | 不重编，快速重打包已有产物 |
 | `fix.yml` / `fix-v121.yml` | 历史分支（preinit 二分定位用，保留作参考） |
@@ -128,20 +128,42 @@ v2.1.0，但两者的用户态协议完全兼容（23 个 `CMD_SUSFS_*` 编号�
 钩子后端采用 **Tracepoint**：FinaSU 的 `SUSFS Inline` 后端在 5.4 上会导致
 内核 panic（init exec 路径，连 recovery 也无法进入），已实机复现，故不采用。
 
-### 功耗调优（开发中）
+### 功耗调优（已启用，实机验证）
 
-> 状态：**开发中，未启用**。run 14 加入下列开关后卡第一屏（recovery 可进，
-> 非 panic 型崩溃），排查中；当前发布版本默认仍为 `performance` governor。
+**背景**：`venus_defconfig` 未设置默认 governor，Kconfig 会兜底成
+`performance` —— 8 核恒满频，日常功耗/发热偏高。
 
-计划中的零性能代价省电开关：
+**排查记录**（2026-11-06，小米 11 实机）：直接设默认 `schedutil` 会卡第一屏
+（小米 logo，recovery 可进，非 panic）。逐项二分：
 
-| 开关 | 改动 | 理由 |
+| 组合 | 结果 |
+|---|---|
+| `performance` 默认 | 正常（满频） |
+| `conservative` 默认 | 正常 |
+| `schedutil` 默认（纯 / 禁 fast_switch） | **卡 logo** |
+| `schedutil` 默认 + 强制 PELT 信号 | **正常** |
+
+→ 根因：schedutil 的 **WALT util 信号路径**在早期启动时序下挂死；改用内核
+原生 **PELT** 信号即可。WALT 调度器本身保留（任务放置 / boost 不变）。
+
+**正式方案**（构建时自动应用，实机验证通过）：
+
+| 组件 | 文件 | 作用 |
 |---|---|---|
-| `CPU_FREQ_DEFAULT_GOV_SCHEDUTIL` | 默认 governor `performance` → `schedutil` | SM8350 是 EAS（WALT）平台，schedutil 按负载调频：轻负载降频省电，突发负载性能不变 |
-| `WQ_POWER_EFFICIENT_DEFAULT` | 开启 | 内核工作队列优先调度到低功耗核 |
-| `SCHED_DEBUG` / `PROFILING` | 关闭 | 移除调度器调试记账与 profiling 钩子开销 |
+| 默认 governor | `scripts/power-tune.sh` | 构建时把默认 governor 从 `performance` 改为 `schedutil` |
+| PELT 修复 | `scripts/sched-patches/pelt-force.patch` | schedutil 强制 PELT util 路径（**必需**，否则卡 logo） |
+| 输入提升 | `scripts/sched-patches/s1-input-boost-off.patch` | `cpu-boost` 输入提升主开关默认关：触摸不再拉高 min 频；运行时 `echo 1 > /sys/devices/system/cpu/cpu_boost/input_boost` 可恢复 |
+| IO 推频 | `scripts/sched-patches/s2-io-is-busy-off.patch` | WALT `io_is_busy` 默认 0：IO 等待不再推高频 |
 
-相关改动保留在 fork 的 `power-wip` 分支，调试完成后重新提交。
+补丁由 `scripts/sched-tune.sh` 在 CI 克隆内核后应用，带幂等与
+`git apply --check` 门禁；内核树漂移时显式失败，不静默跳过。
+`build-susfs.yml` / `build.yml` / `pure.yml` 均已接入，**workflow 默认即省电形态**，
+无需额外勾选。
+
+> 早期在 fork 的 `power-wip` 分支上试验的
+> `WQ_POWER_EFFICIENT_DEFAULT` / `SCHED_DEBUG` / `PROFILING` 开关未纳入正式版：
+> `SCHED_DEBUG` 在最终配置里本就由依赖关系决定（无收益），另两项收益小、
+> 且与本次卡屏问题无关，故不启用。
 
 ---
 
@@ -170,6 +192,7 @@ v2.1.0，但两者的用户态协议完全兼容（23 个 `CMD_SUSFS_*` 编号�
 | 现象 | 原因 |
 |---|---|
 | 卡第一屏 / 黑屏重启 | 内核树 hook 调用点来自 v1.2.1 时代，却拼了 master 的实现（签名、符号名全对不上） |
+| 卡小米 logo（recovery 可进、非 panic） | 默认 governor 设了 `schedutil` 却没应用 `pelt-force` 补丁：WALT util 信号路径早期挂死 → 应用 PELT 补丁，或回退 `conservative`/`performance` |
 | `fatal error: 'linux/pgtable.h' file not found` | 5.8 才拆出的头文件，5.4 没有 → 交给头文件法兜底 |
 | `undefined symbol: ksu_handle_devpts` 等 | vendor 树仍带旧 hook，FinaSU 已不实现 → 补签名精确匹配的 stub |
 | `-DKSU_NO_PREINIT` 不生效 | 调用方自己 extern 声明，仍产生外部引用 → 摘掉对象 + 真实空实现 |
