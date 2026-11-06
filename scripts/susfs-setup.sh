@@ -568,6 +568,234 @@ if [ -f "$DPT" ] && grep -q ksu_handle_devpts "$DPT"; then
   echo "fs/devpts/inode.c keeps ksu_handle_devpts call, stub provides the symbol"
 fi
 
+echo "=== [SUSFS] step4g: native-type oracle filter (snapshot pre-KSU policy types) ==="
+# 春秋/DirtySepolicy 的 context oracle 探测：KSU 注入的 type（含随机化后的 ksu_file、ksu 域）
+# 在原生 policy 里根本不存在 -> 三个 write 入口一律按"不存在"返回 -EINVAL。
+# 快照必须在 KSU 注入规则之前完成，所以在 apply_kernelsu_rules() 开头调用；snapshot
+# 失败时自动退回关键词黑名单（fail-safe），不会静默失效。
+python3 - <<'K54EOF'
+import io
+import sys
+
+SIH = "KernelSU/kernel/feature/selinux_hide.c"
+RULES = "KernelSU/kernel/selinux/rules.c"
+
+
+def load(p):
+    return io.open(p, encoding="utf-8").read()
+
+
+def save(p, s):
+    io.open(p, "w", encoding="utf-8").write(s)
+
+
+def once(s, old, new, tag):
+    if s.count(old) != 1:
+        sys.exit("ksu54-oracle: anchor '%s' count=%d (expected 1)" % (tag, s.count(old)))
+    return s.replace(old, new, 1)
+
+
+HELPERS = r'''
+
+/* ===== ksu54: native type whitelist (pre-KSU policy snapshot) =====
+ * 春秋 / DirtySepolicy 一类检测工具只能通过 selinuxfs 的三个 write 入口
+ * (context / access / setprocattr) "提问"。KSU 注入的 type（含随机化后的
+ * ksu_file、ksu 域等）在原生 policy 里并不存在，因此凡是"非原生 type"
+ * 一律按不存在返回 -EINVAL，等价于干净设备的答复，且不依赖关键词黑名单。
+ */
+static char **ksu54_native_types;
+static int ksu54_native_type_count;
+
+static const char *const ksu54_suspect_words[] = {
+	"ksu", "susfs", "lsposed", "magisk", "xposed", "riru",
+	"zygisk", "tricky", "sukisu", "apatch", "kernelsu",
+};
+
+#define KSU54_SUSPECT_N (sizeof(ksu54_suspect_words) / sizeof(ksu54_suspect_words[0]))
+
+static bool ksu54_type_is_native(const char *type, size_t tlen)
+{
+	int i;
+
+	if (ksu54_native_type_count <= 0)
+		return true;
+
+	for (i = 0; i < ksu54_native_type_count; i++) {
+		const char *n = ksu54_native_types[i];
+
+		if (n && strlen(n) == tlen && !memcmp(n, type, tlen))
+			return true;
+	}
+	return false;
+}
+
+static bool ksu54_parse_type_component(const char *s, size_t len, const char **type,
+				       size_t *tlen)
+{
+	size_t i, start = 0;
+	int colons = 0;
+
+	for (i = 0; i < len; i++) {
+		if (s[i] != ':')
+			continue;
+		colons++;
+		if (colons == 1) {
+			start = i + 1;
+		} else if (colons == 2) {
+			if (i <= start)
+				return false;
+			*type = s + start;
+			*tlen = i - start;
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool ksu54_word_suspect(const char *s, size_t len)
+{
+	char tmp[160];
+	size_t n, i;
+
+	if (!s || !len)
+		return false;
+	n = len < sizeof(tmp) - 1 ? len : sizeof(tmp) - 1;
+	memcpy(tmp, s, n);
+	tmp[n] = 0;
+	for (i = 0; i < KSU54_SUSPECT_N; i++) {
+		if (strstr(tmp, ksu54_suspect_words[i]))
+			return true;
+	}
+	return false;
+}
+
+bool ksu54_context_is_foreign(const char *s, size_t len)
+{
+	const char *type;
+	size_t tlen;
+
+	if (!s || !len)
+		return false;
+	while (len && (s[len - 1] == '\n' || s[len - 1] == ' ' || s[len - 1] == '\t'))
+		len--;
+	if (!len)
+		return false;
+	/* snapshot 未就绪时退回关键词判断（fail-safe） */
+	if (ksu54_native_type_count <= 0)
+		return ksu54_word_suspect(s, len);
+	if (!ksu54_parse_type_component(s, len, &type, &tlen))
+		return false;
+	return !ksu54_type_is_native(type, tlen);
+}
+
+void ksu54_snapshot_native_types(void)
+{
+	struct policydb *pol;
+	struct hashtab *ht;
+	char **arr = NULL;
+	int cap = 0, n = 0;
+	u32 i;
+
+	if (ksu54_native_type_count > 0)
+		return;
+	if (!selinux_state.ss || !selinux_state.ss->policydb.p_types.htable)
+		return;
+	pol = &selinux_state.ss->policydb;
+	ht = &pol->p_types;
+
+	for (i = 0; i < ht->size; i++) {
+		struct hashtab_node *node;
+
+		for (node = ht->htable[i]; node; node = node->next) {
+			const char *name = node->key;
+			size_t l;
+			char *cp;
+
+			if (!name)
+				continue;
+			l = strlen(name);
+			if (n >= cap) {
+				int ncap = cap ? cap * 2 : 2048;
+				char **na = kcalloc(ncap, sizeof(*na), GFP_KERNEL);
+
+				if (!na)
+					goto done;
+				if (arr) {
+					memcpy(na, arr, n * sizeof(*na));
+					kfree(arr);
+				}
+				arr = na;
+				cap = ncap;
+			}
+			cp = kmalloc(l + 1, GFP_KERNEL);
+			if (!cp)
+				goto done;
+			memcpy(cp, name, l + 1);
+			arr[n++] = cp;
+		}
+	}
+done:
+	ksu54_native_types = arr;
+	ksu54_native_type_count = n;
+	pr_info("ksu54: snapshot %d native SELinux types\n", n);
+}
+
+'''
+
+# ---------- 1) rules.c: helpers + snapshot call ----------
+s = load(RULES)
+if "ksu54_context_is_foreign" in s:
+    print("rules.c already patched, skip")
+else:
+    s = once(s, "\nstruct selinux_policy *backup_sepolicy;",
+             "\nstruct selinux_policy *backup_sepolicy;" + HELPERS, "backup_sepolicy decl")
+    s = once(s, "void apply_kernelsu_rules()\n{",
+             "void apply_kernelsu_rules()\n{\n\tksu54_snapshot_native_types();\n",
+             "apply_kernelsu_rules")
+    save(RULES, s)
+    print("rules.c: helpers + snapshot call injected")
+
+# ---------- 2) selinux_hide.c: extern + 3 filter sites ----------
+s = load(SIH)
+if "ksu54_context_is_foreign" in s:
+    print("selinux_hide.c already patched, skip")
+else:
+    s = once(s, "bool ksu_selinux_hide_running __read_mostly = false;",
+             "bool ksu_selinux_hide_running __read_mostly = false;\n\n"
+             "extern bool ksu54_context_is_foreign(const char *s, size_t len);",
+             "hide_running decl")
+    s = once(s,
+             "    char *canon = NULL;\n    u32 sid, len;\n    ssize_t length;\n",
+             "    char *canon = NULL;\n    u32 sid, len;\n    ssize_t length;\n"
+             "\n    if (ksu54_context_is_foreign(buf, size))\n        return -EINVAL;\n",
+             "write_context body")
+    s = once(s,
+             "    sconlen = strlen(scon);\n    tconlen = strlen(tcon);\n",
+             "    sconlen = strlen(scon);\n    tconlen = strlen(tcon);\n"
+             "\n    if (ksu54_context_is_foreign(scon, sconlen) || ksu54_context_is_foreign(tcon, tconlen)) {\n"
+             "        length = -EINVAL;\n        goto out;\n    }\n",
+             "write_access body")
+    s = once(s,
+             "    if (size && str[0] && str[0] != '\\n') {\n",
+             "    if (size && str[0] && str[0] != '\\n') {\n"
+             "        if (ksu54_context_is_foreign(str, size))\n            return -EINVAL;\n",
+             "setprocattr body")
+    save(SIH, s)
+    print("selinux_hide.c: extern + 3 filter sites injected")
+
+# ---------- 3) verify ----------
+r = load(RULES)
+h = load(SIH)
+print("rules.c: snapshot def =", r.count("void ksu54_snapshot_native_types(void)"),
+      "| call =", r.count("ksu54_snapshot_native_types();"))
+print("rules.c: helper =", r.count("bool ksu54_context_is_foreign(const char *s, size_t len)"))
+print("selinux_hide.c: extern =", h.count("extern bool ksu54_context_is_foreign"),
+      "| uses =", h.count("ksu54_context_is_foreign(") - 1)
+print("braces rules.c:", r.count("{") - r.count("}"))
+print("braces hide.c :", h.count("{") - h.count("}"))
+
+K54EOF
+
 echo "=== [SUSFS] step9: randomize KSU file type name (kill the ksu_file fingerprint) ==="
 # SELinux 检测工具会往 selinuxfs 写 "u:object_r:ksu_file:s0" 做 oracle 探针。
 # 只要 policy 里压根没有这个 type 名，内核原生就返回 -EINVAL —— 不需要任何
