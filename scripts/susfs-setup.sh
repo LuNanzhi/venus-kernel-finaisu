@@ -685,24 +685,14 @@ static bool ksu54_head_eq(const char *a, const char *b)
 	return *b == ':' || *b == '\0';
 }
 
-static u32 ksu54_perm_bit(u16 tclass, const char *perm)
+static u32 ksu54_symtab_perm_bit(struct symtab *st, const char *perm)
 {
-	struct policydb *pol;
-	struct class_datum *clad;
 	struct hashtab *ht;
 	u32 i;
 
-	if (!perm || !selinux_state.ss)
+	if (!st || !st->table)
 		return 0;
-	pol = &selinux_state.ss->policydb;
-	if (!pol->class_val_to_struct || !tclass || tclass > pol->p_classes.nprim)
-		return 0;
-	clad = pol->class_val_to_struct[tclass - 1];
-	if (!clad)
-		return 0;
-	ht = clad->permissions.table;
-	if (!ht)
-		return 0;
+	ht = st->table;
 	for (i = 0; i < ht->size; i++) {
 		struct hashtab_node *node;
 
@@ -717,6 +707,27 @@ static u32 ksu54_perm_bit(u16 tclass, const char *perm)
 		}
 	}
 	return 0;
+}
+
+static u32 ksu54_perm_bit(u16 tclass, const char *perm)
+{
+	struct policydb *pol;
+	struct class_datum *clad;
+	u32 bit;
+
+	if (!perm || !selinux_state.ss)
+		return 0;
+	pol = &selinux_state.ss->policydb;
+	if (!pol->class_val_to_struct || !tclass || tclass > pol->p_classes.nprim)
+		return 0;
+	clad = pol->class_val_to_struct[tclass - 1];
+	if (!clad)
+		return 0;
+	/* class-specific permissions，再回退到 common（read/execute 常在 common file 里） */
+	bit = ksu54_symtab_perm_bit(&clad->permissions, perm);
+	if (!bit && clad->comdatum)
+		bit = ksu54_symtab_perm_bit(&clad->comdatum->permissions, perm);
+	return bit;
 }
 
 void ksu54_mask_avd(const char *scon, const char *tcon, u16 tclass, struct av_decision *avd)
