@@ -599,12 +599,15 @@ HELPERS = r'''
 
 /* ===== ksu54: native type whitelist (pre-KSU policy snapshot) =====
  * 春秋 / DirtySepolicy 一类检测工具只能通过 selinuxfs 的三个 write 入口
- * (context / access / setprocattr) "提问"。KSU 注入的 type（含随机化后的
- * ksu_file、ksu 域等）在原生 policy 里并不存在，因此凡是"非原生 type"
- * 一律按不存在返回 -EINVAL，等价于干净设备的答复，且不依赖关键词黑名单。
+ * (context / access / setprocattr) "提问"。KSU 注入的 type（含 ksu_file、
+ * ksu 域等）在原生 policy 里并不存在，因此凡是"非原生 type"一律按
+ * 不存在返回 -EINVAL，等价于干净设备的答复。
+ *
+ * 判定顺序：关键词优先（防快照被污染），白名单兜底（覆盖未知新 type）。
  */
 static char **ksu54_native_types;
 static int ksu54_native_type_count;
+static bool ksu54_snapshot_tried;
 
 static const char *const ksu54_suspect_words[] = {
 	"ksu", "susfs", "lsposed", "magisk", "xposed", "riru",
@@ -629,6 +632,7 @@ static bool ksu54_type_is_native(const char *type, size_t tlen)
 	return false;
 }
 
+/* 从 "user:role:type[:mls]" 取第 3 段（type）。 */
 static bool ksu54_parse_type_component(const char *s, size_t len, const char **type,
 				       size_t *tlen)
 {
@@ -639,9 +643,9 @@ static bool ksu54_parse_type_component(const char *s, size_t len, const char **t
 		if (s[i] != ':')
 			continue;
 		colons++;
-		if (colons == 1) {
+		if (colons == 2) {
 			start = i + 1;
-		} else if (colons == 2) {
+		} else if (colons == 3) {
 			if (i <= start)
 				return false;
 			*type = s + start;
@@ -673,6 +677,10 @@ bool ksu54_context_is_foreign(const char *s, size_t len)
 {
 	const char *type;
 	size_t tlen;
+	char tmp[96];
+	size_t n;
+	bool foreign;
+	static int dbg;
 
 	if (!s || !len)
 		return false;
@@ -680,12 +688,26 @@ bool ksu54_context_is_foreign(const char *s, size_t len)
 		len--;
 	if (!len)
 		return false;
-	/* snapshot 未就绪时退回关键词判断（fail-safe） */
-	if (ksu54_native_type_count <= 0)
-		return ksu54_word_suspect(s, len);
-	if (!ksu54_parse_type_component(s, len, &type, &tlen))
-		return false;
-	return !ksu54_type_is_native(type, tlen);
+
+	if (ksu54_word_suspect(s, len)) {
+		foreign = true;
+	} else if (ksu54_native_type_count <= 0) {
+		foreign = false;
+	} else if (!ksu54_parse_type_component(s, len, &type, &tlen)) {
+		foreign = false;
+	} else {
+		foreign = !ksu54_type_is_native(type, tlen);
+	}
+
+	if (dbg < 40) {
+		dbg++;
+		n = len < sizeof(tmp) - 1 ? len : sizeof(tmp) - 1;
+		memcpy(tmp, s, n);
+		tmp[n] = 0;
+		pr_info("ksu54: oracle \"%s\" cnt=%d foreign=%d\n", tmp,
+			ksu54_native_type_count, (int)foreign);
+	}
+	return foreign;
 }
 
 void ksu54_snapshot_native_types(void)
@@ -696,10 +718,16 @@ void ksu54_snapshot_native_types(void)
 	int cap = 0, n = 0;
 	u32 i;
 
-	if (ksu54_native_type_count > 0)
+	/* 只尝试一次：apply_kernelsu_rules 可能被多次调用，重试会抓到
+	 * 已被 KSU 注入污染的 policy。 */
+	if (ksu54_snapshot_tried)
 		return;
-	if (!selinux_state.ss || !selinux_state.ss->policydb.p_types.htable)
+	ksu54_snapshot_tried = true;
+
+	if (!selinux_state.ss || !selinux_state.ss->policydb.p_types.htable) {
+		pr_warn("ksu54: snapshot skipped, policy not loaded yet\n");
 		return;
+	}
 	pol = &selinux_state.ss->policydb;
 	ht = &pol->p_types;
 
@@ -742,7 +770,7 @@ done:
 
 '''
 
-# ---------- 1) rules.c: helpers + snapshot call ----------
+# ---------- 1) rules.c ----------
 s = load(RULES)
 if "ksu54_context_is_foreign" in s:
     print("rules.c already patched, skip")
@@ -755,7 +783,7 @@ else:
     save(RULES, s)
     print("rules.c: helpers + snapshot call injected")
 
-# ---------- 2) selinux_hide.c: extern + 3 filter sites ----------
+# ---------- 2) selinux_hide.c ----------
 s = load(SIH)
 if "ksu54_context_is_foreign" in s:
     print("selinux_hide.c already patched, skip")
@@ -767,12 +795,14 @@ else:
     s = once(s,
              "    char *canon = NULL;\n    u32 sid, len;\n    ssize_t length;\n",
              "    char *canon = NULL;\n    u32 sid, len;\n    ssize_t length;\n"
-             "\n    if (ksu54_context_is_foreign(buf, size))\n        return -EINVAL;\n",
+             "\n    pr_info(\"ksu54: ctx-write uid=%u size=%zu\\n\", current_uid().val, size);\n"
+             "    if (ksu54_context_is_foreign(buf, size))\n        return -EINVAL;\n",
              "write_context body")
     s = once(s,
              "    sconlen = strlen(scon);\n    tconlen = strlen(tcon);\n",
              "    sconlen = strlen(scon);\n    tconlen = strlen(tcon);\n"
-             "\n    if (ksu54_context_is_foreign(scon, sconlen) || ksu54_context_is_foreign(tcon, tconlen)) {\n"
+             "\n    pr_info(\"ksu54: acc-write uid=%u s=%s t=%s\\n\", current_uid().val, scon, tcon);\n"
+             "    if (ksu54_context_is_foreign(scon, sconlen) || ksu54_context_is_foreign(tcon, tconlen)) {\n"
              "        length = -EINVAL;\n        goto out;\n    }\n",
              "write_access body")
     s = once(s,
@@ -787,13 +817,12 @@ else:
 r = load(RULES)
 h = load(SIH)
 print("rules.c: snapshot def =", r.count("void ksu54_snapshot_native_types(void)"),
-      "| call =", r.count("ksu54_snapshot_native_types();"))
-print("rules.c: helper =", r.count("bool ksu54_context_is_foreign(const char *s, size_t len)"))
-print("selinux_hide.c: extern =", h.count("extern bool ksu54_context_is_foreign"),
-      "| uses =", h.count("ksu54_context_is_foreign(") - 1)
-print("braces rules.c:", r.count("{") - r.count("}"))
-print("braces hide.c :", h.count("{") - h.count("}"))
-
+      "| call =", r.count("ksu54_snapshot_native_types();"),
+      "| parsed3 =", r.count("colons == 3"))
+print("selinux_hide.c: ctx-write log =", h.count("ksu54: ctx-write"),
+      "| acc-write log =", h.count("ksu54: acc-write"))
+print("braces rules.c:", r.count("{") - r.count("}"),
+      "| hide.c:", h.count("{") - h.count("}"))
 K54EOF
 
 echo "=== [SUSFS] verification ==="
