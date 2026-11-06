@@ -568,6 +568,38 @@ if [ -f "$DPT" ] && grep -q ksu_handle_devpts "$DPT"; then
   echo "fs/devpts/inode.c keeps ksu_handle_devpts call, stub provides the symbol"
 fi
 
+echo "=== [SUSFS] step9: randomize KSU file type name (kill the ksu_file fingerprint) ==="
+# SELinux 检测工具会往 selinuxfs 写 "u:object_r:ksu_file:s0" 做 oracle 探针。
+# 只要 policy 里压根没有这个 type 名，内核原生就返回 -EINVAL —— 不需要任何
+# hook 或关键词黑名单，直接把特征本身做掉。
+KTYPE="ft$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
+SELH="$KDIR/KernelSU/kernel/selinux/selinux.h"
+SELC="$KDIR/KernelSU/kernel/selinux/selinux.c"
+if grep -q '#define KERNEL_SU_FILE "ksu_file"' "$SELH"; then
+  sed -i "s|#define KERNEL_SU_FILE \"ksu_file\"|#define KERNEL_SU_FILE \"$KTYPE\"|" "$SELH"
+  echo "KERNEL_SU_FILE -> $KTYPE (KSU_FILE_CONTEXT follows the macro)"
+else
+  echo "::warning::KERNEL_SU_FILE anchor missing, fingerprint NOT randomized"
+fi
+python3 - "$SELC" <<'PYEOF'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+a = s
+s = s.replace('pr_warn("Failed to cache ksu_file SID: %d\\n", err);',
+              'pr_warn("Failed to cache %s SID: %d\\n", KERNEL_SU_FILE, err);')
+s = s.replace('pr_info("Cached ksu_file SID: %u\\n", ksu_file_sid);',
+              'pr_info("Cached %s SID: %u\\n", KERNEL_SU_FILE, ksu_file_sid);')
+if s != a:
+    open(p, 'w').write(s)
+    print('selinux.c: ksu_file log strings parameterized')
+else:
+    print('::warning::selinux.c log anchors missing (non-fatal)')
+PYEOF
+echo "ksu_file literal left in KernelSU/kernel (expect none):"
+grep -rn '"ksu_file"\|ksu_file:s0' "$KDIR/KernelSU/kernel" --include=*.c --include=*.h \
+  | grep -v 'define KERNEL_SU_FILE' || echo "  0 (clean)"
+
 echo "=== [SUSFS] verification ==="
 grep -n 'susfs_set_current_proc_no_su\|for_zygote_next' include/linux/susfs_def.h
 grep -n '(void)zygote_next' "$SH" || true
