@@ -422,8 +422,8 @@ static void security_compute_av_user_with_policy(struct selinux_policy *policy, 
 
 mid = (head + tail).replace("selinux_state.status_lock", "selinux_state.ss->status_lock")
 mid = mid.replace("selinux_state.status_page", "selinux_state.ss->status_page")
-mid = mid.replace("#ifndef CONFIG_KSU_SUSFS", "#if1 /* ksu54: enable real selinux_hide under SUSFS */")
-mid = mid.replace("#ifdef CONFIG_KSU_SUSFS", "#if0 /* ksu54: drop SUSFS no-op shortcut */")
+mid = mid.replace("#ifndef CONFIG_KSU_SUSFS", "#if 1 /* ksu54: enable real selinux_hide under SUSFS */")
+mid = mid.replace("#ifdef CONFIG_KSU_SUSFS", "#if 0 /* ksu54: drop SUSFS no-op shortcut */")
 io.open(P, "w", encoding="utf-8").write(mid + ADD)
 print("selinux_hide.c: 5.4 backport applied (reuse in-kernel selinux services)")
 print("selinux_hide.c: status_lock/status_page remapped to selinux_state.ss->*")
