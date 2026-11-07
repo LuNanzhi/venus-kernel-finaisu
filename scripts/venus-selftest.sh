@@ -10,6 +10,8 @@ TS=$(date +%Y%m%d-%H%M%S)
 OUT="/sdcard/Download/venus-selftest-$TS.txt"
 PASS=0; FAIL=0; WARN=0; SKIP=0
 R=0; [ "$(id -u 2>/dev/null)" = "0" ] && R=1
+DML=/data/local/tmp/venus-dmesg.log
+[ "$R" = "1" ] && dmesg > "$DML" 2>/dev/null
 
 log()  { echo "$@" >> "$OUT"; }
 say()  { echo "$@"; echo "$@" >> "$OUT"; }
@@ -69,10 +71,18 @@ if [ "$R" = "1" ]; then
   DOM=$(cat /proc/self/attr/current 2>/dev/null | tr -d '\0')
   say "  当前域     : $DOM"
   case "$DOM" in u:r:ksu:s0*) ok "root 域为 ksu" ;; *) wrn "root 域异常：$DOM" ;; esac
-  CNT=$(dmesg 2>/dev/null | grep -c "ksu54")
+  CNT=$(grep -c "ksu54" "$DML" 2>/dev/null)
   say "  dmesg ksu54 命中: $CNT"
-  [ "$CNT" -gt 0 ] && ok "access 规则层掩码有日志（本次开机已生效）" \
-    || wrn "无 ksu54 日志（可能 dmesg 已被覆盖，或掩码未加载）"
+  if [ "$CNT" -gt 0 ]; then
+    ok "access 规则层掩码有日志（本次开机已生效）"
+  else
+    DMT0=$(head -1 "$DML" 2>/dev/null | sed -n 's/^\[ *\([0-9][0-9]*\)\..*/\1/p')
+    if [ -n "$DMT0" ] && [ "$DMT0" -gt 600 ] 2>/dev/null; then
+      say "  （dmesg 最早一条已是开机 ${DMT0}s，开机日志被覆盖，本次无法判断，建议刚重启后立刻再跑）"
+    else
+      wrn "无 ksu54 日志（开机不久仍无，掩码可能未加载）"
+    fi
+  fi
 else
   skp "SELinux 域 / ksu54 日志（需要 root）"
 fi
@@ -161,8 +171,6 @@ fi
 # ---------- 9. 异常扫描 ----------
 sec "9. 内核日志异常扫描"
 if [ "$R" = "1" ]; then
-  DML=/data/local/tmp/venus-dmesg.log
-  dmesg > "$DML" 2>/dev/null
   if [ ! -s "$DML" ]; then
     skp "dmesg 为空"
   else
@@ -172,11 +180,23 @@ if [ "$R" = "1" ]; then
     done
     say "  --- 最后 8 行 dmesg ---"
     tail -n 8 "$DML" 2>/dev/null | sed 's/^/    /' | tee -a "$OUT"
-    AL=$(grep -o 'audit_lost=[0-9]*' "$DML" 2>/dev/null | tail -1 | cut -d= -f2)
-    if [ -n "$AL" ]; then
-      say "  audit_lost : $AL"
-      [ "$AL" -gt 1000 ] 2>/dev/null && wrn "audit 缓冲丢日志 $AL 条（AVC 过多或 rate limit 过紧，看 avc 计数）" \
-        || ok "audit 丢包量正常 ($AL)"
+    AVCN=$(grep -c 'avc: *denied' "$DML" 2>/dev/null)
+    say "  avc denied : ${AVCN:-0} 条（仅 dmesg 可见部分）"
+    AVCT=$(grep -o 'scontext=u:r:[a-z0-9_]*' "$DML" 2>/dev/null | sort | uniq -c | sort -rn | head -3)
+    [ -n "$AVCT" ] && echo "$AVCT" | sed 's/^/    来源 /' | tee -a "$OUT"
+    AL0=$(grep -o 'audit_lost=[0-9]*' "$DML" 2>/dev/null | tail -1 | cut -d= -f2)
+    if [ -n "$AL0" ]; then
+      sleep 3
+      dmesg > "$DML.2" 2>/dev/null
+      AL1=$(grep -o 'audit_lost=[0-9]*' "$DML.2" 2>/dev/null | tail -1 | cut -d= -f2)
+      rm -f "$DML.2"
+      if [ -n "$AL1" ] && [ "$AL1" != "$AL0" ]; then
+        wrn "audit 正在丢日志：3 秒内 $AL0 → $AL1（rate_limit 过紧或 AVC 洪泛）"
+      else
+        say "  audit_lost : $AL0（开机阶段累计，当前已静止，不算异常）"
+      fi
+    else
+      say "  audit_lost : 本次 dmesg 无该记录（开机日志已被覆盖，属正常）"
     fi
   fi
   if [ -d /sys/fs/pstore ] && [ -n "$(ls /sys/fs/pstore 2>/dev/null)" ]; then
