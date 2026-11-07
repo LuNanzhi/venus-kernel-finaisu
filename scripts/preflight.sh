@@ -369,6 +369,7 @@ RUL="$SUDIR/selinux/rules.c"
 if [ -f "$RUL" ]; then
 python3 - "$RUL" <<'PYRULE'
 import sys
+import re
 p = sys.argv[1]
 s = open(p, encoding='utf-8').read()
 if 'ksu54_rules_fix' in s:
@@ -391,13 +392,15 @@ else:
 
 # 5.4 死锁修复：reset_avc_cache 里两处 status 通知（6.4+/else 分支各一）都
 # 在 <5.7 时跳过。selinux_status_update_policyload 内部拿 status_lock。
-old_status = '    selinux_status_update_policyload(&selinux_state, 0);'
-new_status = ('#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)) /* ksu54_status_guard */\n'
-              '    selinux_status_update_policyload(&selinux_state, 0);\n'
-              '#endif')
-n2 = s.count(old_status)
+# FinaSU v1.5.0 把第 2 参从硬编码 0 改成真实 seqno，所以这里用正则匹配整行。
+old_status_pat = re.compile(
+    r'    selinux_status_update_policyload\(&selinux_state, [^;\n]*\);')
+n2 = len(old_status_pat.findall(s))
 if n2 >= 1:
-    s = s.replace(old_status, new_status)
+    s = old_status_pat.sub(
+        lambda mo: ('#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)) /* ksu54_status_guard */\n'
+                    + mo.group(0) + '\n#endif'),
+        s)
     ok += 1
     print('  guarded %d status_update call site(s)' % n2)
 else:
