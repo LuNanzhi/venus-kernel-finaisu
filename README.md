@@ -74,18 +74,20 @@ ccflags-y += -include $(srctree)/include/linux/ksu54_compat.h
 
 > `scripts/ksu54-compat.sh` / `ksu54-v121.sh` 是早期「逐文件打补丁」版本，现在只作排查与备用；主线已切到 `preflight.sh`。
 
-### 二、ksud 策略：默认不内嵌 + 刷入时清理旧版（内核侧 fallback 兜底）
+### 二、ksud 策略：默认内嵌匹配版本（+ 清理旧版兜底）
 
 **为什么必须处理**：Android 16 的 app seccomp 拦掉了 `syscall(SYS_reboot, ...)` 这条路，ksud 只能先扫 `/proc/self/fd` 拿内核注入的 fd；而内核 sucompat 注入 fd 时重定向的目标固定是 `/data/adb/ksud`。**文件缺失 = 两条路全断**，FinaSU 只会显示「获取 Root 失败」。
 
-**当前策略**（`embed_ksud` 默认 `false`）：
+**当前策略**（`embed_ksud` 默认 `true`）：
 
 1. **内核侧 fallback**（`scripts/ksu-su-fallback.sh`）：ksud 缺失时改用 `SH_PATH=/system/bin/sh` 直通，保证没有 ksud 时也能拿到 root shell。该宏在 FinaSU 源码里早已定义但从未被使用（死代码），这里接上。
 2. **AK3 统一处理**（`scripts/ak3-ksud.sh`，CI 打包时**无论 `embed_ksud` 真假都会 append** 到 `anykernel.sh` 末尾）：
-   - `embed_ksud=true`：从 FinaSU APK 抽 `lib/arm64-v8a/libksud.so`，装到 `/data/adb/ksud`（覆盖旧版）+ `/data/adb/ksu/bin/ksud` 软链；失败落到 `/sdcard/Download/ksud` 并生成 `ksud-install.sh`
-   - `embed_ksud=false`：**删除设备上残留的 `/data/adb/ksud` 与 `/data/adb/ksu/bin/ksud`**，由管理器首次启动安装匹配版本
+   - `embed_ksud=true`（默认）：从 FinaSU APK 抽 `lib/arm64-v8a/libksud.so`，装到 `/data/adb/ksud`（覆盖设备旧版）+ `/data/adb/ksu/bin/ksud` 软链；失败落到 `/sdcard/Download/ksud` 并生成 `ksud-install.sh`
+   - `embed_ksud=false`（可选）：**删除设备上残留的 `/data/adb/ksud` 与 `/data/adb/ksu/bin/ksud`**，由管理器首次启动安装匹配版本
 
-> ⚠️ **为什么必须清理旧版**：管理器升级到 v1.5.0 后，设备上残留的 v1.4.2 ksud 会与新版管理器版本不匹配、后台反复重试。实测空载亮屏功耗从 **1.32W 涨到 2.65W**，删除旧 ksud 或换匹配版本后恢复 1.32W。仅刷「不带 ksud」的包不会自动清掉旧文件，所以清理逻辑必须做进 AK3（且只在 TWRP 刷入时执行）。
+> ⚠️ **为什么默认内嵌**：管理器升级到 v1.5.0 后，设备上残留的 v1.4.2 ksud 会与新版管理器版本不匹配、后台反复重试。实测空载亮屏功耗从 **1.32W 涨到 2.65W**。内嵌匹配版本可以直接覆盖旧版，一步到位。
+>
+> **不内嵌（`embed_ksud=false`）的副作用**：首次开机没有 ksud，模块（overlay 挂载依赖 ksud 的 post-fs-data）会全部失效，管理器装好 ksud 后通常要**重启两次**才恢复正常（root 不受影响，走内核 su fallback）。实测 2026-11-08。仅在没有 ksud 的极致形态或排查时才用。
 
 **已验证**（2026-11-02，TWRP 实机）：
 
@@ -202,7 +204,7 @@ FinaSU v1.4.2 的 ksud 要求内核 SUSFS 版本字符串**精确等于 `v2.3.0`
 
 | 文件 | 作用 |
 |---|---|
-| `build-susfs.yml` | **现行主线**：FinaSU + SUSFS + preflight v2 + 功耗调优（PELT）+ 默认不内嵌 ksud（AK3 刷入时清理旧版）；带 `disable_preinit` / `disable_susfs` 诊断开关，发布 `venus-test-<n>` |
+| `build-susfs.yml` | **现行主线**：FinaSU + SUSFS + preflight v2 + 功耗调优（PELT）+ 默认内嵌匹配版本 ksud（AK3 覆写旧版）；带 `disable_preinit` / `disable_susfs` 诊断开关，发布 `venus-test-<n>` |
 | `build.yml` | 上一代主线：FinaSU + SUSFS（走 `susfs-setup.sh`，无 preflight v2 / 无版本对齐）+ 功耗调优，发布 `test-run-<n>` |
 | `pure.yml` | 不带 root 的纯净内核（同样接功耗调优），用于排查与回退 |
 | `pack.yml` / `pack-pure.yml` | 不重编，直接对已有 run 的 artifact 重新打 AK3 包 |
@@ -288,7 +290,7 @@ su -c 'sh /sdcard/Download/venus-selftest.sh'
 
 - 从 **FinaSU 管理器 / KernelFlasher** 这类 App 内刷写时，刷写器用 `magiskboot` 直接 patch boot 分区，**不执行 `update-binary`** —— 所以 AK3 脚本（含 ksud 清理）只在 **TWRP** 下生效。
 - 刷 boot 分区不会清掉 `/data/adb/ksud`，所以要更新或删除 ksud 必须靠 AK3 脚本（TWRP 刷入）或手动命令。
-- 当前默认**不内嵌 ksud**：刷入时自动删除设备旧版，由管理器首次启动安装匹配版本；内核侧 `ksu-su-fallback` 保证首次启动仍有 root shell。
+- 当前默认**内嵌匹配版本 ksud**：刷入时直接覆盖设备旧版，不存在「无 ksud 空窗」，模块第一次开机即正常；内核侧 `ksu-su-fallback` 仍然保留作为兜底。若手动选 `embed_ksud=false`，刷入时会删除旧版 ksud，首次开机模块会失效，管理器装好 ksud 后需重启两次恢复。
 
 ---
 
@@ -299,7 +301,8 @@ su -c 'sh /sdcard/Download/venus-selftest.sh'
 | 卡第一屏 / 黑屏重启 | 内核树 hook 调用点来自 v1.2.1 时代，却拼了 master 的实现（签名、符号名全对不上） |
 | 卡小米 logo（recovery 可进、非 panic） | 默认 governor 设了 `schedutil` 却没应用 `pelt-force` 补丁：WALT util 信号路径早期挂死 → 应用 PELT 补丁，或回退 `conservative`/`performance` |
 | FinaSU 报「获取 Root 失败」 | `/data/adb/ksud` 缺失 + Android 16 seccomp 拦 reboot syscall → 内核 fallback + AK3 内置 ksud 双保险 |
-| 升级管理器后空载功耗升高（~2.6W，且 `avc` / `ksu54` 日志都不多） | 设备上的旧版 ksud 与新版管理器版本不匹配，后台反复重试 → TWRP 刷本仓库包会自动删除旧版（`embed_ksud=false` 时）；手动：`su -c 'rm -f /data/adb/ksud /data/adb/ksu/bin/ksud'` |
+| 升级管理器后空载功耗升高（~2.6W，且 `avc` / `ksu54` 日志都不多） | 设备上的旧版 ksud 与新版管理器版本不匹配，后台反复重试 → 本仓库包默认内嵌匹配版本、刷入即覆盖；手动：`su -c 'rm -f /data/adb/ksud /data/adb/ksu/bin/ksud'` 后由管理器重装 |
+| 刷完首次开机模块全失效、root 正常，重启两次才恢复 | 用了 `embed_ksud=false`：首次开机没有 ksud，模块（依赖 ksud 的 post-fs-data overlay 挂载）全部未加载；管理器装好匹配版本后需再重启一到两次。默认 `embed_ksud=true` 不会出现 |
 | SUSFS 页只读 / `unknown_protocol` | 内核汇报的版本字符串 ≠ `v2.3.0` → `susfs-version.sh` 对齐（v2.1.0 内核可如实汇报） |
 | 管理器不识别 / 全功能不可用 | 管理器 APK 与内核内嵌签名/版本不对应（v1.2.1 内核不能配新 APK） |
 | 春秋探测器报「zygote 有 selinuxfs 权限」 | 对 `/sys/fs/selinux/access` 的写没有按原生语义返回 `EACCES`（用了 `-EINVAL` 或随机化 type） |

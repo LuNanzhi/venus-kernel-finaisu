@@ -26,9 +26,9 @@ on:
         default: false
         type: boolean
       embed_ksud:
-        description: 'Embed ksud into AnyKernel3 (default false: 包内不再内嵌 ksud，管理器单独安装)'
+        description: 'Embed matching ksud into AnyKernel3 (default true: 覆盖设备旧版，避免版本不匹配耗电/模块失效)'
         required: false
-        default: false
+        default: true
         type: boolean
 
 jobs:
@@ -319,7 +319,7 @@ jobs:
           # ---- 可选：内置 ksud（embed_ksud=false 用于验证内核侧 su fallback）----
           # 注意：boolean 输入在表达式里用 || 处理会把 false 当成 falsy 而回落到 true，因此这里直接引用字串。
           EMBED_KSUD="${{ inputs.embed_ksud }}"
-          EMBED_KSUD="${EMBED_KSUD:-false}"
+          EMBED_KSUD="${EMBED_KSUD:-true}"
           echo "EMBED_KSUD=$EMBED_KSUD"
           echo "KSUD_EMBED=$EMBED_KSUD" >> $GITHUB_ENV
           if [ "$EMBED_KSUD" = "true" ]; then
