@@ -335,16 +335,20 @@ jobs:
             else
               echo "::warning::APK download failed, AK3 will NOT contain ksud"
             fi
-            cat ../ci/scripts/ak3-ksud.sh >> anykernel.sh
           else
             echo "::notice::ksud NOT embedded - kernel-side su fallback test build"
           fi
+          # 无论是否内嵌都追加 ksud 处理脚本：
+          #   包内有 ksud -> 安装/覆盖设备上的版本；
+          #   包内无 ksud -> 删除设备上的旧版本（旧 ksud + 新管理器会后台重试，
+          #   实测空载 2.65W vs 匹配版本 1.32W）。
+          cat ../ci/scripts/ak3-ksud.sh >> anykernel.sh
           
           # ---- TWRP 显示：内核详细信息 + 共创者 ----
           BUILD_STAMP=$(date -u +%Y%m%d-%H%MZ)
           CLANG_STR=$(clang --version | head -1 | cut -c1-48)
           if [ "${{ inputs.disable_susfs || 'false' }}" = "true" ]; then SUSFS_STATE=disabled; else SUSFS_STATE=enabled; fi
-          if [ "$EMBED_KSUD" = "true" ]; then KSUD_STATE=embedded; else KSUD_STATE=not_embedded; fi
+          if [ "$EMBED_KSUD" = "true" ]; then KSUD_STATE=embedded; else KSUD_STATE="not_embedded (stale removed)"; fi
           # 不加引号的 heredoc：让 $NEKO_VER / $BUILD_STAMP 等在 CI 侧就展开
           cat >> anykernel.sh <<AK3EOF
           

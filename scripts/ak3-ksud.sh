@@ -9,7 +9,27 @@ ksud_install() {
   ui_print "- Installer by cvbyisme & LuNanzhi";
   KS="$AKHOME/ksud";
   if [ ! -f "$KS" ]; then
-    ui_print "! ksud not in package, skip";
+    # ---- 包内不带 ksud：清掉设备上的旧版本，避免管理器(新版)与旧 ksud 版本
+    # 不匹配后后台反复重试（实测：旧 v1.4.2 ksud + v1.5.0 管理器 → 空载 2.65W，
+    # 删掉/换成匹配版本后 1.32W）。删掉后由管理器首次启动时释放匹配版本，
+    # 内核侧 ksu-su-fallback 保证首次启动仍有 root shell。
+    ui_print " ";
+    ui_print "- No ksud in package: remove stale one on device";
+    REMOVED=0;
+    if mount 2>/dev/null | grep -qE " on /data type "; then
+      if [ -e /data/adb/ksud ] || [ -e /data/adb/ksu/bin/ksud ] || [ -L /data/adb/ksu/bin/ksud ]; then
+        rm -f /data/adb/ksud /data/adb/ksu/bin/ksud 2>/dev/null && REMOVED=1;
+      fi
+      if [ "$REMOVED" = "1" ]; then
+        ui_print "  - removed stale /data/adb/ksud";
+        ui_print "  - manager will install the matching ksud on first boot";
+      else
+        ui_print "  - no stale ksud on device";
+      fi
+    else
+      ui_print "! /data not mounted, stale ksud not removed";
+    fi
+    ui_print " ";
     return 0;
   fi
   chmod 755 "$KS" 2>/dev/null;
