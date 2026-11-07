@@ -267,6 +267,8 @@ shim = (
     '#' + 'include "ss/services.h"' + chr(10) +
     'struct selinux_policy {' + chr(10) +
     '    struct policydb policydb;' + chr(10) +
+    '    /* FinaSU v1.5.0 tracks SELinux policy generations here (5.7+ field). */' + chr(10) +
+    '    u32 latest_granting;' + chr(10) +
     '};' + chr(10) +
     'extern struct selinux_state selinux_state;' + chr(10) +
     '#' + 'endif' + chr(10))
@@ -282,14 +284,22 @@ if 'KSU54_POLICY_FIELD' not in s:
         'struct selinux_policy *backup_sepolicy;' + chr(10) + chr(10) +
         '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 7, 0)' + chr(10) +
         '#define KSU54_POLICY_FIELD' + chr(10) +
+        'static u32 ksu54_policy_generation;' + chr(10) +
         'static struct selinux_policy *ksu54_current_policy(void)' + chr(10) +
         '{' + chr(10) +
         '    static struct selinux_policy shadow;' + chr(10) +
         '    shadow.policydb = selinux_state.ss->policydb;' + chr(10) +
+        '    shadow.latest_granting = ksu54_policy_generation;' + chr(10) +
         '    return &shadow;' + chr(10) +
         '}' + chr(10) +
         '#define KSU_POLICY_GET() ksu54_current_policy()' + chr(10) +
-        '#define KSU_POLICY_SET(pol) (selinux_state.ss->policydb = (pol)->policydb)' + chr(10) +
+        # FinaSU v1.5.0 hands the policy generation around through
+        # selinux_policy->latest_granting. Keep the counter alive across
+        # generations even though 5.4 stores only the policydb.
+        '#define KSU_POLICY_SET(pol) do { \\' + chr(10) +
+        '    ksu54_policy_generation = (pol)->latest_granting; \\' + chr(10) +
+        '    selinux_state.ss->policydb = (pol)->policydb; \\' + chr(10) +
+        '} while (0)' + chr(10) +
         '#define KSU_POLICY_LOCK() mutex_lock(&selinux_state.ss->status_lock)' + chr(10) +
         '#define KSU_POLICY_UNLOCK() mutex_unlock(&selinux_state.ss->status_lock)' + chr(10) +
         '#else' + chr(10) +
@@ -789,11 +799,22 @@ else:
              "    if (ksu54_context_is_foreign(scon, sconlen) || ksu54_context_is_foreign(tcon, tconlen)) {\n"
              "        length = -EINVAL;\n        goto out;\n    }\n",
              "write_access body")
-    s = once(s,
-             "    if (size && str[0] && str[0] != '\\n') {\n",
-             "    if (size && str[0] && str[0] != '\\n') {\n"
-             "        if (ksu54_context_is_foreign(str, size))\n            return -EINVAL;\n",
-             "setprocattr body")
+    # v1.4.x: `if (size && str[0] && str[0] != '\n') {`
+    # v1.5.0 drops the trailing `&& str[0] != '\n'` (it trims the newline below anyway)
+    setproc_anchor = None
+    for cand in ("    if (size && str[0] && str[0] != '\\n') {\n",
+                 "    if (size && str[0]) {\n"):
+        if s.count(cand) == 1:
+            setproc_anchor = cand
+            break
+    if setproc_anchor is None:
+        sys.exit("ksu54-oracle: setprocattr anchor not found (v1.4=%d v1.5=%d)" % (
+            s.count("    if (size && str[0] && str[0] != '\\n') {\n"),
+            s.count("    if (size && str[0]) {\n")))
+    s = s.replace(setproc_anchor,
+                  setproc_anchor +
+                  "        if (ksu54_context_is_foreign(str, size))\n            return -EINVAL;\n",
+                  1)
     s = once(s,
              "    security_compute_av_user_with_policy(backup_sepolicy, ssid, tsid, tclass, &avd);\n"
              "\n    // stock reads 1;",
