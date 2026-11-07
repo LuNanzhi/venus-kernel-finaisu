@@ -415,6 +415,44 @@ else
   echo "  rules.c missing (skip)"
 fi
 
+echo "=== [preflight] 5.7/6: pin 5.4 AVC reset seqno to 0 (FinaSU v1.5.0 generation) ==="
+# FinaSU v1.5.0 (#3964) 把 reset_avc_cache() 从硬编码 0 改为传真实 policy
+# generation（pol->latest_granting，每次 apply/sepolicy 更新 +1）。5.4 的
+# avc_insert() 拿 avd->seqno 与 avc_cache.latest_notif 比较：generation 递增后，
+# 并发中的权限检查仍持旧 seqno -> 每次插入都判定过期（-EAGAIN，条目不写缓存，
+# 权限检查反复走慢路径）并 pr_warn 刷屏。5.4 没有 5.7+ 的 policy generation
+# 语义，所以把两处调用点降回 0（与 v1.4.2 完全一致）；latest_granting 字段与
+# #3969 的原生 type 标记逻辑保持不变（KSU 内部使用）。
+if [ -f "$RUL" ]; then
+  if grep -q 'ksu54_reset_seqno' "$RUL"; then
+    echo "  already pinned to 0"
+  elif grep -q 'reset_avc_cache(pol->latest_granting)' "$RUL"; then
+python3 - "$RUL" <<'PYRESET'
+import sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+old = '    reset_avc_cache(pol->latest_granting);'
+n = s.count(old)
+if n < 1:
+    sys.exit('  ERROR: reset_avc_cache(pol->latest_granting) call site not found')
+new = ('    /* ksu54_reset_seqno: 5.4 avc_insert compares avd->seqno against\n'
+       '     * avc_cache.latest_notif; a rising policy generation makes concurrent\n'
+       '     * AVC inserts look stale (-EAGAIN, entry dropped) and spams pr_warn.\n'
+       '     * 5.4 has no 5.7+ policy-generation semantics, so keep the v1.4.2\n'
+       '     * behaviour (seqno 0) here.  latest_granting is still maintained for\n'
+       '     * KSU internal original-type tracking (#3969). */\n'
+       '    reset_avc_cache(0);')
+s = s.replace(old, new)
+open(p, 'w', encoding='utf-8').write(s)
+print('  pinned %d reset_avc_cache call site(s) to 0' % n)
+PYRESET
+  else
+    echo "  no v1.5.0 generation call site (v1.4.x)"
+  fi
+else
+  echo "  rules.c missing (skip)"
+fi
+
 echo "=== [preflight] 5.8/6: rate-limit SELinux avc notif warn (5.4 seqno mismatch) ==="
 # FinaSU v1.5.0 用 selinux_status_update_policyload() 传真实 policy seqno，
 # 5.4 的 avc_cache.latest_notif 与之不同步，每次 notify 都 pr_warn 一行；
@@ -464,6 +502,7 @@ chk "namespace.c exports do_mount"       "grep -q 'EXPORT_SYMBOL(do_mount)' '$KD
 chk "su_mount_ns.c uses do_mount"        "grep -q 'do_mount' '$SUDIR/infra/su_mount_ns.c'"
 chk "rules.c destroy-old guarded"         "grep -q 'ksu54_rules_fix' '$SUDIR/selinux/rules.c'"
 chk "rules.c status_update guarded"       "grep -q 'ksu54_status_guard' '$SUDIR/selinux/rules.c'"
+chk "rules.c AVC reset seqno pinned"      "grep -q 'ksu54_reset_seqno' '$SUDIR/selinux/rules.c' || ! grep -q 'reset_avc_cache(pol->latest_granting)' '$SUDIR/selinux/rules.c'"
 
 if [ "${DISABLE_PREINIT:-false}" = "true" ]; then
   chk "preinit disabled (stub + objs removed)" "grep -q 'ksu54_preinit_off.o' '$SUDIR/Kbuild' && ! grep -q 'preinit/preinit\.o' '$SUDIR/Kbuild'"
