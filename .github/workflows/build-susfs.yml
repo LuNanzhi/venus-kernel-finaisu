@@ -26,9 +26,9 @@ on:
         default: false
         type: boolean
       embed_ksud:
-        description: 'Embed ksud into AnyKernel3 (set false to test kernel-side su fallback)'
+        description: 'Embed ksud into AnyKernel3 (default false: 包内不再内嵌 ksud，管理器单独安装)'
         required: false
-        default: true
+        default: false
         type: boolean
 
 jobs:
@@ -319,7 +319,7 @@ jobs:
           # ---- 可选：内置 ksud（embed_ksud=false 用于验证内核侧 su fallback）----
           # 注意：boolean 输入在表达式里用 || 处理会把 false 当成 falsy 而回落到 true，因此这里直接引用字串。
           EMBED_KSUD="${{ inputs.embed_ksud }}"
-          EMBED_KSUD="${EMBED_KSUD:-true}"
+          EMBED_KSUD="${EMBED_KSUD:-false}"
           echo "EMBED_KSUD=$EMBED_KSUD"
           echo "KSUD_EMBED=$EMBED_KSUD" >> $GITHUB_ENV
           if [ "$EMBED_KSUD" = "true" ]; then
@@ -391,7 +391,7 @@ jobs:
             - KSU_SECOND_SIGNATURE_RELEASE=1 (slot2 = FinaSU release key, size 716)
             - preflight v2: 5.4 shim headers + global -include + devpts/umount retarget
             - Package: AnyKernel3 zip
-            - ksud embedded: ${{ env.KSUD_EMBED || 'true' }}
+            - ksud embedded: ${{ env.KSUD_EMBED || 'false' }}
 
             Install: flash in TWRP or a kernel flasher app.
             Manager: FinaSU manager matching the slot2 signature.
