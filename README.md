@@ -253,7 +253,7 @@ su -c 'sh /sdcard/Download/venus-selftest.sh'
 | 6 | 电池 `capacity` / `status` / `charge_counter` / `voltage_now` |
 | 7 | 三个安全补丁属性，以及与 `/system/build.prop` 的差异（差异属伪装正常） |
 | 8 | 已装模块数、`venus_spoof_security_patch` / `tricky_store` / `zygisksu` 是否在 `modules` 而非 `modules_update` |
-| 9 | dmesg 扫 `Kernel panic` / `Oops` / `soft lockup` / `sleeping function` / `Call trace` / `Watchdog bark`，附带 `audit_lost` |
+| 9 | dmesg 扫 `Kernel panic` / `Oops` / `soft lockup` / `sleeping function` / `Call trace` / `Watchdog bark`；另统计 `avc denied` 条数与 top3 来源域；`audit_lost` 只在仍在增长时告警（开机阶段累计属正常） |
 | 10 | `boot_a` / `vendor_boot_a` / `dtbo_a` 备份是否存在且体积正常 |
 
 > 想给别人看日志用 `scripts/collect-logs.sh`；想确认自己刷成功用 `scripts/venus-selftest.sh`。
