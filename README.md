@@ -217,6 +217,8 @@ FinaSU v1.4.2 的 ksud 要求内核 SUSFS 版本字符串**精确等于 `v2.3.0`
 | `scripts/power-tune.sh` | 默认 governor 改 `schedutil`（含 verify 模式） |
 | `scripts/sched-tune.sh` | 应用 `scripts/sched-patches/*.patch`（幂等 + `git apply --check`） |
 | `scripts/sched-patches/` | `pelt-force` / `s1-input-boost-off` / `s2-io-is-busy-off` 三个补丁 |
+| `scripts/venus-selftest.sh` | **刷完自检**：内核身份 / KSU feature / SELinux 域 / governor / zram / 电池 / 补丁日期 / 模块 / dmesg 异常扫描 / boot 备份，输出 PASS-WARN-FAIL 表 |
+| `scripts/collect-logs.sh` | 一键收集日志打包 zip，给别人排错用（dmesg、logcat、pstore、ksud.log 全带） |
 | `scripts/ak3-ksud.sh` | AK3 内置 ksud 安装器（第二层保险） |
 | `scripts/ksu-su-fallback.sh` | 内核侧 sucompat fallback（第一层保险） |
 | `scripts/ksu54-compat.sh`、`scripts/ksu54-v121.sh` | 早期逐文件补丁版，历史·备用 |
@@ -226,6 +228,35 @@ FinaSU v1.4.2 的 ksud 要求内核 SUSFS 版本字符串**精确等于 `v2.3.0`
 ### 构建门禁
 
 `ksu_handle_*`、`CONFIG_KSU`、`CONFIG_KSU_SUSFS_*`、`CONFIG_KPROBES` 这些符号**静默缺失**（`scripts/config` 不校验依赖，`olddefconfig` 阶段被丢弃且不报错）是踩过最深的坑之一。现在 workflow 在编译后会做一次硬门禁：逐项 grep `.config`，缺任一项就 `::error::` + 打印依赖诊断并 `exit 1`，绝不放出「能刷但没有 root」的产物。
+
+---
+
+## 刷完自检
+
+刷完重启后建议先跑一遍自检，确认内核真的活了，而不是只看能不能开机：
+
+```sh
+curl -sL -o /sdcard/Download/venus-selftest.sh \
+  https://raw.githubusercontent.com/cvbyisme/venus-kernel-finaisu/main/scripts/venus-selftest.sh
+su -c 'sh /sdcard/Download/venus-selftest.sh'
+```
+
+输出一张 `PASS / WARN / FAIL / SKIP` 汇总表，详细报告落在 `/sdcard/Download/venus-selftest-<时间>.txt`。检查项：
+
+| 段 | 检查内容 |
+|---|---|
+| 1 | `/proc/version` 是否含 `Neko-CL`（`uname -r` 会被 uts spoof 改写成 `5.4.274-qgki`，**不可信**） |
+| 2 | `ksud -V` 与 `selinux_hide` / `avc_spoof` / `su_compat` / `kernel_umount` 是否 ENABLED |
+| 3 | `getenforce`、root 域是否 `u:r:ksu:s0`、`dmesg` 里 `ksu54` 掩码日志 |
+| 4 | 三个簇的 governor 是否 `schedutil`、`input_boost` / `io_is_busy` 是否关闭 |
+| 5 | meminfo、`zram0` disksize 与压缩算法 |
+| 6 | 电池 `capacity` / `status` / `charge_counter` / `voltage_now` |
+| 7 | 三个安全补丁属性，以及与 `/system/build.prop` 的差异（差异属伪装正常） |
+| 8 | 已装模块数、`venus_spoof_security_patch` / `tricky_store` / `zygisksu` 是否在 `modules` 而非 `modules_update` |
+| 9 | dmesg 扫 `Kernel panic` / `Oops` / `soft lockup` / `sleeping function` / `Call trace` / `Watchdog bark`，附带 `audit_lost` |
+| 10 | `boot_a` / `vendor_boot_a` / `dtbo_a` 备份是否存在且体积正常 |
+
+> 想给别人看日志用 `scripts/collect-logs.sh`；想确认自己刷成功用 `scripts/venus-selftest.sh`。
 
 ---
 
