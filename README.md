@@ -270,10 +270,11 @@ su -c 'sh /sdcard/Download/venus-selftest.sh'
 
 | Tag | 内容 |
 |---|---|
-| **[`ak3-susfs-4`](https://github.com/cvbyisme/venus-kernel-finaisu/releases/tag/ak3-susfs-4)** | **当前稳定版**：FinaSU v1.5.0（保留两个内核 SELinux 提交）+ 5.4 AVC seqno 兼容补丁 + 默认不内嵌 ksud（AK3 刷入时自动清理旧版）；空载亮屏约 1.3W（2026-11-07 实机验证） |
-| `ak3-susfs-2` | 上一稳定版：FinaSU + SUSFS v2.3.0 + SELinux 隐藏双层修复，春秋 native 4.6.2 探测通过（2026-11-07） |
+| **[`ak3-susfs-5`](https://github.com/cvbyisme/venus-kernel-finaisu/releases/tag/ak3-susfs-5)** | **当前稳定版**：FinaSU v1.5.0（保留两个内核 SELinux 提交）+ 5.4 AVC seqno 兼容补丁 + **默认内嵌匹配版本 ksud**（TWRP 刷入直接覆盖旧版，模块首次开机即正常）；空载亮屏约 1.3W（2026-11-08 实机验证） |
+| `ak3-susfs-4` | 上一稳定版：同内核，但默认不内嵌 ksud（刷入删除旧版，首次开机模块会失效、需重启两次恢复） |
+| `ak3-susfs-2` | FinaSU + SUSFS v2.3.0 + SELinux 隐藏双层修复，春秋 native 4.6.2 探测通过（2026-11-07） |
 | `ak3-susfs-1` | 更早稳定版（2026-11-04）。SELinux 隐藏实际未生效（构建脚本在 step7 中断） |
-| `venus-test-<n>` | 主线测试构建，跟踪最新改动（`venus-test-30` 与 `ak3-susfs-4` 为同一产物，sha256 一致） |
+| `venus-test-<n>` | 主线测试构建，跟踪最新改动（`venus-test-36` 与 `ak3-susfs-5` 为同一产物，sha256 一致） |
 
 **历史**
 
