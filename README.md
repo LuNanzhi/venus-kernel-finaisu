@@ -25,7 +25,7 @@
 
 ## 快速开始
 
-1. 到 **[Releases](../../releases)** 下载 `ak3-susfs-1`（实机验证过的稳定包）或最新的 `venus-test-*`
+1. 到 **[Releases](../../releases)** 下载 **[`ak3-susfs-2`](https://github.com/cvbyisme/venus-kernel-finaisu/releases/tag/ak3-susfs-2)**（最新稳定包，SELinux 隐藏双层修复 + 春秋探测通过）或最新的 `venus-test-*`
 2. 进 **TWRP** 刷入或者APP刷入
 3. 重启，打开 FinaSU —— 首屏显示 **「工作中」** 即完成
 
@@ -119,18 +119,46 @@ FinaSU v1.4.2 的 ksud 要求内核 SUSFS 版本字符串**精确等于 `v2.3.0`
 
 5.4 没有 `struct selinux_policy`（5.7 才引入），早期的兼容层直接把 `selinux_hide` 整块 stub 成空实现，等于该功能不存在。现在改为**真正的 backport**，并且行为语义按探测器文档对齐：
 
-- 探测器会以 `app_zygote` 为源，**raw 写** `/sys/fs/selinux/access` 并校验 `avdSeqNo`，用来判断「zygote 是否拥有 selinuxfs 写权限」
-- 对非特权域的正确行为是**返回 `EACCES`**，模拟原生拒绝的真实样子，同时保持 status 字段与 `avdSeqNo` 自洽
+探测器不是单点检查，而是**分层的**：`type 名存在性` → `access 规则位` → `status/sequence 自洽` → `重复性 / syscall-libc 交叉比对`。所以这里按层拦截。
 
-反例（都会被打回）：
+#### 第一层：原生 type 白名单（context oracle）
+启动时对 policydb 做一次快照，记下全部原生 type 名（本机 3903 个）。写入 `/sys/fs/selinux/context` 的 context 若满足下列任一条件，返回 `-EINVAL`（探测器把 `EINVAL` 判为「不存在」）：
+- type 段不在原生白名单里
+- 名字命中 `ksu` / `susfs` / `lsposed` / `magisk` / `xposed` / `riru` / `zygisk` / `tricky` / `sukisu` / `apatch` / `kernelsu` 关键词
 
+原生 type 全部放行。写 `/proc/self/attr/current` 时同样返回 `-EINVAL` —— **绝不能返回 `EPERM`**，探测器把 `EPERM` 判为「存在」（这是参考实现 `DirtySepolicy` 的判定口径）。
+
+#### 第二层：access 规则位掩码（AVD）
+命中敏感组合时，在应答返回前把对应允许位剥掉，并保持 `avd.seqno = 1`：
+
+| 源域 | 目标 | 权限 |
+|---|---|---|
+| `system_server` | 自身 | `process:execmem` |
+| `zygote` | `adb_data_file` | `dir:search` |
+| `shell` | `su` | `process:transition` |
+| `kernel` | `adb_data_file` | `file:read` |
+| `system_server` | `apk_data_file` | `file:execute` |
+| `dex2oat` | `dex2oat_exec` | `file:execute_no_trans` |
+| `rootfs` | `tmpfs` | `filesystem:associate` |
+| `kernel` | `tmpfs` | `file:open` |
+
+实现细节（5.4 树）：
+- `type` 取 context **第 3 段**，关键词优先匹配；比较时忽略 MLS 段（探测器会带 `:c512,c768`）
+- 白名单快照**只尝试一次**（重试会抓到已被 KSU 注入的 policy）
+- 权限位查找：先查 class 自己的 `permissions`，找不到再回退 `comdatum->permissions`（`file` 类的 `read` / `execute` 定义在 common class 里）
+- 5.4 的 `struct symtab` 内是**指针**：正确写法 `p_types.table->htable[i]`，写 `p_types.htable` 编译不过
+
+#### 反例（都会被打回）
 | 做法 | 命中的判定 |
 |---|---|
-| 关键词黑名单 / 直接返 `-EINVAL` | zygote 有 selinuxfs 权限（真实权限是 EACCES） |
-| 随机化 type 名 | 同上，写入仍成功 |
-| 一律拒绝（含特权域） | direct syscall and libc views disagree（正控被拒） |
+| 关键词黑名单 / 随机化 type 名 | type 依然在 policydb 里，第一层就命中 |
+| 只做 type 白名单 | type 层过了，`system_server execmem` / `zygote -> adb_data_file search` 仍是 allow |
+| 对特权域一律拒绝 | direct syscall and libc views disagree（正控被拒） |
 
-现行实现在 context oracle 上还有三处细节：`type` 取**第 3 段**、关键词优先匹配、快照**只尝试一次**，并额外打印 `ksu54` 诊断日志方便抓 bugreport。
+#### 诊断
+`dmesg | grep ksu54` 可见：`oracle "…" cnt=3903 foreign=0`、`ctx-write uid=… size=…`、`mask avd <scon> -> <tcon> perm=<perm>`。
+
+> ⚠️ **构建链路坑**：`scripts/susfs-setup.sh` 是多段 heredoc 脚本。早期 step7 的 anchor 匹配失败会 `raise SystemExit`，`set -e` 让整个脚本非 0 退出，又被 workflow 的 `|| echo "##[warning]partially applied"` 吞掉 —— 于是 step8 / step4g / verification **全部不执行**，SELinux 侧改动一个都没进内核，而 job 仍显示 success。现改为打印并正常退出，step4g 也提前到 step4e 之后；排查时务必在 CI 日志里 grep `=== [SUSFS] step4g`。
 
 ### 五、功耗调优（已启用，实机验证）
 
@@ -205,8 +233,9 @@ FinaSU v1.4.2 的 ksud 要求内核 SUSFS 版本字符串**精确等于 `v2.3.0`
 
 | Tag | 内容 |
 |---|---|
-| **[`ak3-susfs-1`](https://github.com/cvbyisme/venus-kernel-finaisu/releases/tag/ak3-susfs-1)** | FinaSU + SUSFS v2.3.0，实机验证（2026-11-04） |
-| `venus-test-<n>` | 主线测试构建，跟踪最新改动（`venus-test-22` 起含 SELinux 隐藏修正） |
+| **[`ak3-susfs-2`](https://github.com/cvbyisme/venus-kernel-finaisu/releases/tag/ak3-susfs-2)** | **当前稳定版**：FinaSU + SUSFS v2.3.0 + SELinux 隐藏双层修复，春秋 native 4.6.2 探测通过（2026-11-07 实机验证） |
+| `ak3-susfs-1` | 上一稳定版（2026-11-04）。SELinux 隐藏实际未生效（构建脚本在 step7 中断） |
+| `venus-test-<n>` | 主线测试构建，跟踪最新改动（`venus-test-27` 与 `ak3-susfs-2` 为同一产物，sha256 一致） |
 
 **历史**
 
@@ -238,6 +267,8 @@ FinaSU v1.4.2 的 ksud 要求内核 SUSFS 版本字符串**精确等于 `v2.3.0`
 | 管理器不识别 / 全功能不可用 | 管理器 APK 与内核内嵌签名/版本不对应（v1.2.1 内核不能配新 APK） |
 | 春秋探测器报「zygote 有 selinuxfs 权限」 | 对 `/sys/fs/selinux/access` 的写没有按原生语义返回 `EACCES`（用了 `-EINVAL` 或随机化 type） |
 | 春秋探测器报 `direct syscall and libc views disagree` | 对特权域也一律拒绝 → 只对非特权域拒绝 |
+| 春秋报 `system_server execmem` / `zygote -> adb_data_file search` | type 层已拦住，探测器下探到 access 规则位 → `ksu54_mask_avd()` 掩码 |
+| 改了 SELinux 代码但行为没变、`dmesg \| grep ksu54` 全空 | `susfs-setup.sh` 中途退出，后续 step 未执行 → 检查 CI 日志有没有 `=== [SUSFS] step4g` |
 | `fatal error: 'linux/pgtable.h' file not found` | 5.8 才拆出的头文件，5.4 没有 → 交给头文件法兜底 |
 | `undefined symbol: ksu_handle_devpts` 等 | vendor 树仍带旧 hook，FinaSU 已不实现 → 补签名精确匹配的 stub |
 | `-DKSU_NO_PREINIT` 不生效 | 调用方自己 extern 声明，仍产生外部引用 → 摘掉对象 + 真实空实现 |
