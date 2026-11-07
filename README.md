@@ -115,7 +115,7 @@ FinaSU v1.4.2 的 ksud 要求内核 SUSFS 版本字符串**精确等于 `v2.3.0`
 
 > 历史现象：早期版本 SUSFS 一直报「未知协议」，dmesg 里 `show_version` / `show_variant` / `get_enabled_features` 均 `ret:0`（内核能响应 ioctl），最终定位为版本字符串不一致 —— 已由 `susfs-version.sh` 彻底解决，不是集成方式问题。
 
-### 四、SELinux 隐藏（5.7+ API 的 5.4 backport）
+### 四、SELinux 隐藏（5.7+ API 的 5.4 backport，双层拦截）
 
 5.4 没有 `struct selinux_policy`（5.7 才引入），早期的兼容层直接把 `selinux_hide` 整块 stub 成空实现，等于该功能不存在。现在改为**真正的 backport**，并且行为语义按探测器文档对齐：
 
@@ -149,6 +149,7 @@ FinaSU v1.4.2 的 ksud 要求内核 SUSFS 版本字符串**精确等于 `v2.3.0`
 - 5.4 的 `struct symtab` 内是**指针**：正确写法 `p_types.table->htable[i]`，写 `p_types.htable` 编译不过
 
 #### 反例（都会被打回）
+
 | 做法 | 命中的判定 |
 |---|---|
 | 关键词黑名单 / 随机化 type 名 | type 依然在 policydb 里，第一层就命中 |
@@ -156,6 +157,7 @@ FinaSU v1.4.2 的 ksud 要求内核 SUSFS 版本字符串**精确等于 `v2.3.0`
 | 对特权域一律拒绝 | direct syscall and libc views disagree（正控被拒） |
 
 #### 诊断
+
 `dmesg | grep ksu54` 可见：`oracle "…" cnt=3903 foreign=0`、`ctx-write uid=… size=…`、`mask avd <scon> -> <tcon> perm=<perm>`。
 
 > ⚠️ **构建链路坑**：`scripts/susfs-setup.sh` 是多段 heredoc 脚本。早期 step7 的 anchor 匹配失败会 `raise SystemExit`，`set -e` 让整个脚本非 0 退出，又被 workflow 的 `|| echo "##[warning]partially applied"` 吞掉 —— 于是 step8 / step4g / verification **全部不执行**，SELinux 侧改动一个都没进内核，而 job 仍显示 success。现改为打印并正常退出，step4g 也提前到 step4e 之后；排查时务必在 CI 日志里 grep `=== [SUSFS] step4g`。
