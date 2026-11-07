@@ -415,6 +415,35 @@ else
   echo "  rules.c missing (skip)"
 fi
 
+echo "=== [preflight] 5.8/6: rate-limit SELinux avc notif warn (5.4 seqno mismatch) ==="
+# FinaSU v1.5.0 用 selinux_status_update_policyload() 传真实 policy seqno，
+# 5.4 的 avc_cache.latest_notif 与之不同步，每次 notify 都 pr_warn 一行；
+# 实测 0.04 秒内刷出 7000+ 行，把 ring buffer 打满并拖慢整机。
+AVC="$KDIR/security/selinux/avc.c"
+if [ -f "$AVC" ]; then
+python3 - "$AVC" <<'PYAVC'
+import sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+if 'avc54_notif_ratelimit' in s:
+    print('  already rate-limited')
+    raise SystemExit(0)
+anchor = 'pr_warn("SELinux: avc: seqno %d < latest_notif %d\\n",'
+if anchor not in s:
+    print('  WARN: avc notif warn anchor not found (skip)')
+    raise SystemExit(0)
+s = s.replace(
+    anchor,
+    '/* avc54_notif_ratelimit */\n\t\t\t'
+    'pr_warn_ratelimited("SELinux: avc: seqno %d < latest_notif %d\\n",',
+    1)
+open(p, 'w', encoding='utf-8').write(s)
+print('  rate-limited avc notif warning')
+PYAVC
+else
+  echo "  avc.c missing (skip)"
+fi
+
 echo "=== [preflight] 6/6: verification ==="
 fail=0
 chk() {
