@@ -218,6 +218,7 @@ FinaSU v1.4.2 的 ksud 要求内核 SUSFS 版本字符串**精确等于 `v2.3.0`
 | `scripts/ksu54-compat.h` | 兼容头本体（被 `-include` 全局注入） |
 | `scripts/susfs-setup.sh` | SUSFS 5.4 移植（接进 FinaSU 与内核树） |
 | `scripts/susfs-version.sh` | SUSFS 版本对齐（v2.1.0 内核如实汇报 v2.3.0 协议，修 ctime 笔误） |
+| `scripts/susfs-uname-proc.sh` | uname procfs 伪装：`/proc/version` 与 `/proc/sys/kernel/{osrelease,version}` 接到 SUSFS uname 缓冲，与 `uname(2)` 保持一致 |
 | `scripts/power-tune.sh` | 默认 governor 改 `schedutil`（含 verify 模式） |
 | `scripts/sched-tune.sh` | 应用 `scripts/sched-patches/*.patch`（幂等 + `git apply --check`） |
 | `scripts/sched-patches/` | `pelt-force` / `s1-input-boost-off` / `s2-io-is-busy-off` 三个补丁 |
