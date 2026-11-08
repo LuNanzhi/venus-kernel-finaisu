@@ -80,6 +80,13 @@ jobs:
           chmod +x ci/scripts/susfs-version.sh
           bash ci/scripts/susfs-version.sh "$PWD/kernel"
 
+      # 让 spoof_uname 同时覆盖 /proc/version 与 /proc/sys/kernel/{osrelease,version}，
+      # 使系统「内核版本」显示与软件读取也显示伪装值（默认只 hook uname() 系统调用）。
+      - name: SUSFS uname spoof for /proc/version and osrelease
+        run: |
+          chmod +x ci/scripts/susfs-uname-proc.sh
+          bash ci/scripts/susfs-uname-proc.sh "$PWD/kernel"
+
       - name: Preflight (5.4 shim headers, Kbuild injection, devpts, umount)
         run: |
           chmod +x ci/scripts/preflight.sh
