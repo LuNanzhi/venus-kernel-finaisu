@@ -25,7 +25,7 @@
 
 ## 快速开始
 
-1. 到 **[Releases](../../releases)** 下载 **[`ak3-susfs-2`](https://github.com/cvbyisme/venus-kernel-finaisu/releases/tag/ak3-susfs-2)**（最新稳定包，SELinux 隐藏双层修复 + 春秋探测通过）或最新的 `venus-test-*`
+1. 到 **[Releases](../../releases)** 下载 **[`ak3-susfs-6`](https://github.com/cvbyisme/venus-kernel-finaisu/releases/tag/ak3-susfs-6)**（最新稳定包：FinaSU v1.5.0 + uname procfs 伪装）或最新的 `venus-test-*`
 2. 进 **TWRP** 刷入或者APP刷入
 3. 重启，打开 FinaSU —— 首屏显示 **「工作中」** 即完成
 
@@ -271,7 +271,8 @@ su -c 'sh /sdcard/Download/venus-selftest.sh'
 
 | Tag | 内容 |
 |---|---|
-| **[`ak3-susfs-5`](https://github.com/cvbyisme/venus-kernel-finaisu/releases/tag/ak3-susfs-5)** | **当前稳定版**：FinaSU v1.5.0（保留两个内核 SELinux 提交）+ 5.4 AVC seqno 兼容补丁 + **默认内嵌匹配版本 ksud**（TWRP 刷入直接覆盖旧版，模块首次开机即正常）；空载亮屏约 1.3W（2026-11-08 实机验证） |
+| **[`ak3-susfs-6`](https://github.com/cvbyisme/venus-kernel-finaisu/releases/tag/ak3-susfs-6)** | **当前稳定版**：ak3-susfs-5 + uname procfs 伪装（`/proc/version`、`/proc/sys/kernel/{osrelease,version}` 与 `uname(2)` 一致；app 侧 zygote 缓存限制见第六节） |
+| `ak3-susfs-5` | FinaSU v1.5.0 基线稳定版（无 uname procfs 伪装）：FinaSU v1.5.0（保留两个内核 SELinux 提交）+ 5.4 AVC seqno 兼容补丁 + **默认内嵌匹配版本 ksud**（TWRP 刷入直接覆盖旧版，模块首次开机即正常）；空载亮屏约 1.3W（2026-11-08 实机验证） |
 | `ak3-susfs-4` | 上一稳定版：同内核，但默认不内嵌 ksud（刷入删除旧版，首次开机模块会失效、需重启两次恢复） |
 | `ak3-susfs-2` | FinaSU + SUSFS v2.3.0 + SELinux 隐藏双层修复，春秋 native 4.6.2 探测通过（2026-11-07） |
 | `ak3-susfs-1` | 更早稳定版（2026-11-04）。SELinux 隐藏实际未生效（构建脚本在 step7 中断） |
