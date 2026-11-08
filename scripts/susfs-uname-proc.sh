@@ -151,5 +151,22 @@ if 'builder@build-server' not in iv:
     print('patched init/version.c (linux_proc_banner build info)')
 else:
     print('init/version.c already patched')
+
+# ---- 4. init/version.c: bake the spoofed uname into init_uts_ns ----
+# susfs_spoof_uname() is applied by the manager only after boot; zygote has
+# already started by then, so every app process inherits the *real* uname via
+# System.getProperty("os.version"). Hard-code the vendor (stock) release and
+# version into init_uts_ns so the very first uname() call at boot returns the
+# spoofed values, making app/zygote/root views consistent.
+if 'Neko-CL' not in iv and '"5.4.274-qgki-gcc3ec22"' not in iv:
+    old_uts = '''		.release	= UTS_RELEASE,
+		.version	= UTS_VERSION,'''
+    new_uts = '''		.release	= "5.4.274-qgki-gcc3ec22",
+		.version	= "#1 SMP PREEMPT Tue Jun 17 03:21:05 UTC 2025",'''
+    assert iv.count(old_uts) == 1, 'init_uts_ns release/version anchor not found'
+    open('init/version.c', 'w').write(iv.replace(old_uts, new_uts, 1))
+    print('patched init/version.c (init_uts_ns stock release/version)')
+else:
+    print('init/version.c init_uts_ns already patched')
 PYEOF
 echo "=== [SUSFS] uname-proc patch done ==="
