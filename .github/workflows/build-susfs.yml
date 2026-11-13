@@ -6,7 +6,7 @@ on:
       ksu_ref:
         description: 'FinaSU git ref'
         required: false
-        default: 'v1.5.0'
+        default: 'v1.6.1'
       kernel_repo:
         description: 'kernel source repo (owner/name)'
         required: false
@@ -330,7 +330,7 @@ jobs:
           echo "EMBED_KSUD=$EMBED_KSUD"
           echo "KSUD_EMBED=$EMBED_KSUD" >> $GITHUB_ENV
           if [ "$EMBED_KSUD" = "true" ]; then
-            KSAPK_URL="https://github.com/LyraVoid/FinaSU/releases/download/v1.5.0/FinaSU_v1.5.0_33174-release.apk"
+            KSAPK_URL="https://github.com/LyraVoid/FinaSU/releases/download/v1.6.1/FinaSU_v1.6.1_33198-release.apk"
             if curl -fL --retry 3 --connect-timeout 20 -o /tmp/fina.apk "$KSAPK_URL"; then
               if unzip -o -j /tmp/fina.apk "lib/arm64-v8a/libksud.so" -d /tmp/kx > /dev/null; then
                 cp /tmp/kx/libksud.so ./ksud
