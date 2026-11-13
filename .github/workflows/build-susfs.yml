@@ -185,7 +185,6 @@ jobs:
           else
             ./scripts/config --file out/.config \
               --enable KPROBES --enable KSU --enable KSU_SUSFS \
-              --enable KSU_HOOK_SUSFS_INLINE --disable KSU_HOOK_TRACEPOINT \
               --enable KSU_SUSFS_SUS_PATH --enable KSU_SUSFS_SUS_MOUNT \
               --enable KSU_SUSFS_SUS_KSTAT --enable KSU_SUSFS_SPOOF_UNAME \
               --enable KSU_SUSFS_ENABLE_LOG --enable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
@@ -237,7 +236,6 @@ jobs:
           else
             ./scripts/config --file out/.config \
               --enable KPROBES --enable KSU --enable KSU_SUSFS \
-              --enable KSU_HOOK_SUSFS_INLINE --disable KSU_HOOK_TRACEPOINT \
               --enable KSU_SUSFS_SUS_PATH --enable KSU_SUSFS_SUS_MOUNT \
               --enable KSU_SUSFS_SUS_KSTAT --enable KSU_SUSFS_SPOOF_UNAME \
               --enable KSU_SUSFS_ENABLE_LOG --enable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
