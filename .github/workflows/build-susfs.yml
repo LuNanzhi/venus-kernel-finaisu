@@ -16,9 +16,9 @@ on:
         required: false
         default: 'main'
       disable_preinit:
-        description: 'Diagnostic: disable KSU preinit (bisect boot loop)'
+        description: 'Disable KSU preinit runner (compiled in, off at runtime; default on for 5.4 Inline stability)'
         required: false
-        default: false
+        default: true
         type: boolean
       disable_susfs:
         description: 'Diagnostic: disable SUSFS entirely (bisect boot loop)'
