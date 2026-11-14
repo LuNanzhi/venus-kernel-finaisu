@@ -232,6 +232,23 @@ jobs:
           export CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm
           export OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip READELF=llvm-readelf
           clang --version
+          # disable_preinit=true：preinit 仍然编译（保证符号存在），
+          # 但把运行时开关默认置 false，init 不会被换名执行 runner。
+          # 用于二分定位 run45 的“卡第一屏”是否由 preinit runner 引起。
+          if [ "${{ inputs.disable_preinit || 'false' }}" = "true" ]; then
+            P=KernelSU/kernel/preinit/preinit.c
+            if [ -f "$P" ]; then
+              sed -i 's/^static bool ksu_preinit_enabled = true;/static bool ksu_preinit_enabled = false;/' "$P"
+              grep -n "static bool ksu_preinit_enabled" "$P"
+              if ! grep -q "ksu_preinit_enabled = false" "$P"; then
+                echo "::error::failed to patch preinit runtime default"
+                exit 1
+              fi
+            else
+              echo "::error::$P missing from this FinaSU ref"
+              exit 1
+            fi
+          fi
 
           # 内核版本后缀：5.4.302-Neko-CL-<日期>-<随机>
           NEKO_VER="Neko-CL-$(date +%Y%m%d)-$(od -An -N2 -tu2 /dev/urandom | tr -d ' ')"
@@ -280,22 +297,23 @@ jobs:
           make -j$(nproc) O=out olddefconfig
           bash ../ci/scripts/power-tune.sh "$PWD" verify
           # preinit 是否参与编译由 workflow 输入决定：
-          # - disable_preinit=false：装 UAPI 头并强制 KSU_REQUIRE_PREINIT=1（缺头即构建失败）
-          # - disable_preinit=true：跳过 preinit（官方说明普通模块/Inline 仍可用，
-          #   仅缺 initrc/*.rc 与部分早期同步），不再要求 UAPI 头
-          PREINIT_ARG=""
-          if [ "${{ inputs.disable_preinit || 'false' }}" = "true" ]; then
-            echo "preinit: disabled by input, headers_install gate skipped"
+          # - disable_preinit=false：preinit 完整生效（编译 + 运行时启用）
+          # - disable_preinit=true ：preinit 仍编译（符号必须存在），但 preinit.c 里的
+          #   运行时开关默认改为 false，init 不会被换名执行 runner（用于二分定位）
+          # Inline 后端的 fs/exec.c 无条件直调 ksu_setup_preinit_file /
+          # ksu_preinit_handle_post_execveat；缺 out/usr/include 时 preinit.o 不编译，
+          # 这两个符号就不存在 -> ld.lld undefined symbol（run46 即此失败）。
+          # 所以 headers_install 必须始终执行。
+          PREINIT_ARG="KSU_REQUIRE_PREINIT=1"
+          make -j$(nproc) O=out headers_install
+          if [ -d out/usr/include ]; then
+            echo "preinit headers: out/usr/include OK ($(ls out/usr/include | wc -l) entries)"
           else
-            PREINIT_ARG="KSU_REQUIRE_PREINIT=1"
-            # FinaSU preinit runner 需要 $(objtree)/usr/include；缺了会静默关闭 preinit
-            make -j$(nproc) O=out headers_install
-            if [ -d out/usr/include ]; then
-              echo "preinit headers: out/usr/include OK ($(ls out/usr/include | wc -l) entries)"
-            else
-              echo "::error::headers_install did not produce out/usr/include; preinit would be disabled"
-              exit 1
-            fi
+            echo "::error::headers_install did not produce out/usr/include; preinit symbol would be missing"
+            exit 1
+          fi
+          if [ "${{ inputs.disable_preinit || 'false' }}" = "true" ]; then
+            echo "preinit: compiled in, disabled at RUNTIME (preinit.c default=false)"
           fi
 
           # 与门禁同理：先确保 flask.h 已生成，避免与 selinux 目录构建竞态
@@ -345,11 +363,9 @@ jobs:
                 exit 1
               fi
             done
-            if [ "${{ inputs.disable_preinit || 'false' }}" != "true" ]; then
-              if ! grep -qx "CONFIG_HEADERS_INSTALL=y" out/include/config/auto.conf; then
-                echo "::error::CONFIG_HEADERS_INSTALL=y missing from auto.conf (preinit needs it)"
-                exit 1
-              fi
+            if ! grep -qx "CONFIG_HEADERS_INSTALL=y" out/include/config/auto.conf; then
+              echo "::error::CONFIG_HEADERS_INSTALL=y missing from auto.conf (Inline exec.c needs preinit symbols)"
+              exit 1
             fi
             echo "auto.conf config gate: PASS"
           else
