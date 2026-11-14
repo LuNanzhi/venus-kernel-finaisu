@@ -259,6 +259,17 @@ jobs:
               --enable KSU_SUSFS_OPEN_REDIRECT --enable KSU_SUSFS_SUS_MAP \
               --enable KSU_DYNAMIC_MANAGER
           fi
+          # hook 后端：choice 依赖 KSU_SUSFS=y 才会在 olddefconfig 时保留，
+          # 单靠 defconfig 里的 INLINE=y 会被 choice 默认值(Tracepoint)覆盖。
+          # 因此按内核树的 defconfig 显式开关，且只在该树声明 Inline 时才动，
+          # 不污染 main 分支（main 无直调点，强开 Inline 会触发门禁失败）。
+          if grep -q '^CONFIG_KSU_HOOK_SUSFS_INLINE=y' arch/arm64/configs/venus_defconfig; then
+            echo "hook backend: SUSFS Inline (explicit enable)"
+            ./scripts/config --file out/.config \
+              --enable KSU_HOOK_SUSFS_INLINE --disable KSU_HOOK_TRACEPOINT
+          else
+            echo "hook backend: Tracepoint (default)"
+          fi
 
           # 不要 -g<sha> 后缀，只用我们自己的 Neko-CL 版本号
           ./scripts/config --file out/.config --set-str LOCALVERSION ""
