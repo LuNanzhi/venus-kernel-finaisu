@@ -72,11 +72,10 @@ else
     echo "inline-su-fix: fs/exec.c anchors not found (skip kernel-side fix)"
 fi
 
-# ---------- 2) FinaSU sucompat.c ----------
+# ---------- 2) FinaSU sucompat.c（Tracepoint 路径，Inline 模式不编译但保留兼容） ----------
 if [ ! -f "$SUC" ]; then
     echo "inline-su-fix: sucompat.c not found (skip FinaSU-side fix)"
-    exit 0
-fi
+else
 if grep -q 'ksu54_inline_su_fix' "$SUC"; then
     echo "inline-su-fix: sucompat.c already fixed"
 else
@@ -106,6 +105,46 @@ if n:
 else:
     print('inline-su-fix: sucompat.c no_su anchors not found (skip)')
 PYSUC
+fi
+fi
+
+# ---------- 3) FinaSU extension/susfs.c（Inline 路径的门禁） ----------
+SUSC="$KDIR/KernelSU/kernel/extension/susfs.c"
+if [ ! -f "$SUSC" ]; then
+    echo "inline-su-fix: extension/susfs.c not found (skip inline gate fix)"
+else
+if grep -q 'ksu54_inline_su_fix' "$SUSC"; then
+    echo "inline-su-fix: extension/susfs.c already fixed"
+else
+python3 - "$SUSC" <<'PYSUSC'
+import sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+
+old = (
+    "static bool inline_sucompat_allowed(void)\n"
+    "{\n"
+    "    return ksu_su_compat_is_enabled() && !susfs_is_current_proc_no_su() &&\n"
+    "           ksu_is_allow_uid_for_current(current_uid().val);\n"
+    "}\n"
+)
+if s.count(old) != 1:
+    sys.exit('inline-su-fix: inline_sucompat_allowed anchor not unique (count=%d)' % s.count(old))
+new = (
+    "static bool inline_sucompat_allowed(void)\n"
+    "{\n"
+    "    /* ksu54_inline_su_fix: allowlisted uid may su even when the no_su/\n"
+    "     * umounted thread flag is set (adb shell inherits it in Inline mode).\n"
+    "     * Unauthorized processes keep the original behaviour. */\n"
+    "    return ksu_su_compat_is_enabled() && ksu_is_allow_uid_for_current(current_uid().val)\n"
+    "           && !(susfs_is_current_proc_no_su() && !ksu_is_allow_uid_for_current(current_uid().val));\n"
+    "}\n"
+)
+s = s.replace(old, new, 1)
+open(p, 'w', encoding='utf-8').write(s)
+print('inline-su-fix: inline_sucompat_allowed exempted for allowlisted uid')
+PYSUSC
+fi
 fi
 
 echo "inline-su-fix: DONE"
