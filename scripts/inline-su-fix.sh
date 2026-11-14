@@ -141,6 +141,43 @@ new = (
     "}\n"
 )
 s = s.replace(old, new, 1)
+
+# ---- 调试日志：拆开 ksu_handle_faccessat 的短路条件 ----
+dbg_old = (
+    "int ksu_handle_faccessat(int *dfd, struct filename **filename, int *mode, int *unused_flags)\n"
+    "{\n"
+    "    if (!inline_filename_valid(filename) || strcmp((*filename)->name, SU_PATH) || !inline_sucompat_allowed() ||\n"
+    "        !inline_ksud_exists())\n"
+    "        return 0;\n"
+)
+dbg_new = (
+    "int ksu_handle_faccessat(int *dfd, struct filename **filename, int *mode, int *unused_flags)\n"
+    "{\n"
+    "    /* ksu54dbg: split the short-circuit so dmesg shows which gate fails */\n"
+    "    if (!inline_filename_valid(filename)) {\n"
+    "        pr_info_ratelimited(\"ksu54dbg: faccessat filename invalid\\n\");\n"
+    "        return 0;\n"
+    "    }\n"
+    "    if (strcmp((*filename)->name, SU_PATH)) {\n"
+    "        pr_info_ratelimited(\"ksu54dbg: faccessat name=%s\\n\", (*filename)->name);\n"
+    "        return 0;\n"
+    "    }\n"
+    "    if (!inline_sucompat_allowed()) {\n"
+    "        pr_info_ratelimited(\"ksu54dbg: allowed=false uid=%d su_compat=%d no_su=%d allow=%d ksud=%d\\n\",\n"
+    "                            current_uid().val, ksu_su_compat_is_enabled(), susfs_is_current_proc_no_su(),\n"
+    "                            ksu_is_allow_uid_for_current(current_uid().val), inline_ksud_exists());\n"
+    "        return 0;\n"
+    "    }\n"
+    "    if (!inline_ksud_exists()) {\n"
+    "        pr_info_ratelimited(\"ksu54dbg: ksud not found\\n\");\n"
+    "        return 0;\n"
+    "    }\n"
+)
+if dbg_old in s:
+    s = s.replace(dbg_old, dbg_new, 1)
+    print('inline-su-fix: faccessat debug gates added')
+else:
+    print('inline-su-fix: faccessat debug anchor not found (skip)')
 open(p, 'w', encoding='utf-8').write(s)
 print('inline-su-fix: inline_sucompat_allowed exempted for allowlisted uid')
 PYSUSC
