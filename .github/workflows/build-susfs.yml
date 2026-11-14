@@ -194,8 +194,11 @@ jobs:
           fi
           # ---- 功耗调优：默认 governor = schedutil ----
           bash ../ci/scripts/power-tune.sh "$PWD"
+          # ---- 稳定性调优：panic 超时 5s -> 15s（留足 ramoops 落盘时间）----
+          bash ../ci/scripts/venus-tune.sh "$PWD"
           make -j$(nproc) O=out olddefconfig
           bash ../ci/scripts/power-tune.sh "$PWD" verify
+          bash ../ci/scripts/venus-tune.sh "$PWD" verify
           bash ../ci/scripts/sched-tune.sh "$PWD" verify
 
           # flask.h 是 security/selinux 目录构建时才生成的（out/security/selinux/flask.h），
@@ -294,8 +297,11 @@ jobs:
 
           # ---- 功耗调优：默认 governor = schedutil ----
           bash ../ci/scripts/power-tune.sh "$PWD"
+          # ---- 稳定性调优：panic 超时 5s -> 15s（留足 ramoops 落盘时间）----
+          bash ../ci/scripts/venus-tune.sh "$PWD"
           make -j$(nproc) O=out olddefconfig
           bash ../ci/scripts/power-tune.sh "$PWD" verify
+          bash ../ci/scripts/venus-tune.sh "$PWD" verify
           # preinit 是否参与编译由 workflow 输入决定：
           # - disable_preinit=false：preinit 完整生效（编译 + 运行时启用）
           # - disable_preinit=true ：preinit 仍编译（符号必须存在），但 preinit.c 里的
@@ -339,6 +345,8 @@ jobs:
           # ---- 功耗调优门禁 ----
           bash ../ci/scripts/power-tune.sh "$PWD" verify || MISSING=1
           bash ../ci/scripts/sched-tune.sh "$PWD" verify || MISSING=1
+          # ---- 稳定性门禁 ----
+          bash ../ci/scripts/venus-tune.sh "$PWD" verify || MISSING=1
           if [ "${{ inputs.disable_susfs || 'false' }}" = "true" ]; then
             RESIDUE=$(grep -E 'CONFIG_KSU_SUSFS' out/.config | grep '=y' || true)
             if [ -n "$RESIDUE" ]; then
@@ -418,7 +426,16 @@ jobs:
           cd ak3
           rm -rf .git .github patch README.md
           mkdir -p patch
-          cp ../kernel/out/arch/arm64/boot/Image .
+          # 用 gzip 压缩的 Image.gz 进包：AnyKernel3 官方识别 Image/Image.gz
+          # （ak3-core.sh 的 kernel 列表），zip 体积更小、刷写更快；boot.img 内的
+          # kernel 压缩格式仍由 magiskboot 按原 boot 头处理。
+          if [ -f ../kernel/out/arch/arm64/boot/Image.gz ]; then
+            cp ../kernel/out/arch/arm64/boot/Image.gz .
+            echo "AK3 kernel: Image.gz ($(stat -c %s Image.gz) bytes)"
+          else
+            cp ../kernel/out/arch/arm64/boot/Image .
+            echo "AK3 kernel: Image (uncompressed fallback)"
+          fi
           # ---- 可选：内置 ksud（embed_ksud=false 用于验证内核侧 su fallback）----
           # 注意：boolean 输入在表达式里用 || 处理会把 false 当成 falsy 而回落到 true，因此这里直接引用字串。
           EMBED_KSUD="${{ inputs.embed_ksud }}"
@@ -446,6 +463,8 @@ jobs:
           #   包内无 ksud -> 删除设备上的旧版本（旧 ksud + 新管理器会后台重试，
           #   实测空载 2.65W vs 匹配版本 1.32W）。
           cat ../ci/scripts/ak3-ksud.sh >> anykernel.sh
+          # pstore/ramoops 崩溃日志收集器（开机由 ksud 的 service.d 执行）
+          cat ../ci/scripts/ak3-pstore.sh >> anykernel.sh
           
           # ---- TWRP 显示：内核详细信息 + 共创者 ----
           BUILD_STAMP=$(date -u +%Y%m%d-%H%MZ)
