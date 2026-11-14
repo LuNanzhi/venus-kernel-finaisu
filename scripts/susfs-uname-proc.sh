@@ -129,5 +129,27 @@ static int proc_do_uts_string_spoof(struct ctl_table *table, int write,
     print('patched kernel/utsname_sysctl.c (osrelease + version)')
 else:
     print('kernel/utsname_sysctl.c already patched')
+
+# ---- 3. init/version.c: hide the build environment in /proc/version ----
+# linux_proc_banner bakes LINUX_COMPILE_BY/HOST/COMPILER in at build time, so
+# /proc/version leaks the CI host (runner@runnervm7aw5e) and toolchain even
+# when uname() is spoofed. Replace the compile-info part with a neutral
+# vendor-style string so the procfs view no longer reveals the build box.
+iv = open('init/version.c').read()
+if 'builder@build-server' not in iv:
+    old_banner = '''const char linux_proc_banner[] =
+	"%s version %s"
+	" (" LINUX_COMPILE_BY "@" LINUX_COMPILE_HOST ")"
+	" (" LINUX_COMPILER ") %s\\n";'''
+    new_banner = '''const char linux_proc_banner[] =
+	"%s version %s"
+	" (builder@build-server)"
+	" (Android clang version 14.0.6)"
+	" %s\\n";'''
+    assert iv.count(old_banner) == 1, 'linux_proc_banner anchor not found'
+    open('init/version.c', 'w').write(iv.replace(old_banner, new_banner, 1))
+    print('patched init/version.c (linux_proc_banner build info)')
+else:
+    print('init/version.c already patched')
 PYEOF
 echo "=== [SUSFS] uname-proc patch done ==="
