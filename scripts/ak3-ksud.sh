@@ -17,8 +17,8 @@ ksud_install() {
     ui_print "- No ksud in package: remove stale one on device";
     REMOVED=0;
     if mount 2>/dev/null | grep -qE " on /data type "; then
-      if [ -e /data/adb/ksud ] || [ -e /data/adb/ksu/bin/ksud ] || [ -L /data/adb/ksu/bin/ksud ]; then
-        rm -f /data/adb/ksud /data/adb/ksu/bin/ksud 2>/dev/null && REMOVED=1;
+      if [ -e /data/adb/ksud ] || [ -e /data/adb/ksu/bin/ksud ] || [ -L /data/adb/ksu/bin/ksud ] || [ -L /data/adb/ksu/bin/su ]; then
+        rm -f /data/adb/ksud /data/adb/ksu/bin/ksud /data/adb/ksu/bin/su 2>/dev/null && REMOVED=1;
       fi
       if [ "$REMOVED" = "1" ]; then
         ui_print "  - removed stale /data/adb/ksud";
@@ -47,11 +47,15 @@ ksud_install() {
     chmod 755 /data/adb/ksud 2>/dev/null;
     chmod 700 /data/adb/ksu /data/adb/ksu/bin 2>/dev/null;
     ln -sf /data/adb/ksud /data/adb/ksu/bin/ksud 2>/dev/null;
+    # KSU 的 userspace su 入口就是 bin/su（ksud 按 argv[0] 判断 su 模式）；
+    # 缺这个软链时 Termux 等 PATH 里找不到 su、部分路径直接报 not found。
+    ln -sf /data/adb/ksud /data/adb/ksu/bin/su 2>/dev/null;
     # TWRP 的 busybox 常缺 chcon，缺了也无所谓：ksud 运行时会把上下文
     # 重设成 u:object_r:ksu_file:s0
     if command -v chcon >/dev/null 2>&1; then
       chcon u:object_r:adb_data_file:s0 /data/adb/ksud 2>/dev/null;
       chcon u:object_r:adb_data_file:s0 /data/adb/ksu/bin/ksud 2>/dev/null;
+      chcon u:object_r:adb_data_file:s0 /data/adb/ksu/bin/su 2>/dev/null;
     fi
     if [ -s /data/adb/ksud ]; then
       ui_print "  - /data/adb/ksud installed";
@@ -84,6 +88,7 @@ ksud_install() {
         "mkdir -p /data/adb/ksu/bin" \
         "cp -f \$SRC /data/adb/ksud && chmod 755 /data/adb/ksud && chown 0:0 /data/adb/ksud" \
         "ln -sf /data/adb/ksud /data/adb/ksu/bin/ksud" \
+        "ln -sf /data/adb/ksud /data/adb/ksu/bin/su" \
         "chmod 700 /data/adb/ksu /data/adb/ksu/bin" \
         "echo done" > "$SD/Download/ksud-install.sh";
       chmod 755 "$SD/Download/ksud-install.sh" 2>/dev/null;
