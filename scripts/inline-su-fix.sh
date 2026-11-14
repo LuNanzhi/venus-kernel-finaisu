@@ -72,6 +72,35 @@ else
     echo "inline-su-fix: fs/exec.c anchors not found (skip kernel-side fix)"
 fi
 
+# ---------- 1b) 内核树 fs/stat.c / fs/open.c 直调点的路径匹配 ----------
+# strncpy_from_user 不补 NUL：14 字符的 "/system/bin/su" 复制后 ksu54_name[14]
+# 是栈垃圾，strcmp 可能失败 -> 该进程完全不出现在 sucompat 日志里（app 恰好
+# 匹配、shell 不匹配的实机现象）。初始化为 0 并改用精确长度比较。
+for F in "$KDIR/fs/stat.c" "$KDIR/fs/open.c"; do
+    [ -f "$F" ] || continue
+    if grep -q 'ksu54_name_fix' "$F"; then
+        echo "inline-su-fix: $(basename "$F") already fixed"
+        continue
+    fi
+python3 - "$F" <<'PYNAME'
+import sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+old1 = "\t\tchar ksu54_name[16];\n"
+new1 = "\t\tchar ksu54_name[16] = {0}; /* ksu54_name_fix: strncpy_from_user does not NUL-terminate */\n"
+old2 = "\t\tif (ksu54_n > 0 && !strcmp(ksu54_name, \"/system/bin/su\")) {\n"
+new2 = "\t\tif (ksu54_n == 14 && !strcmp(ksu54_name, \"/system/bin/su\")) {\n"
+n = 0
+if s.count(old1) == 1:
+    s = s.replace(old1, new1, 1); n += 1
+if s.count(old2) == 1:
+    s = s.replace(old2, new2, 1); n += 1
+if n:
+    open(p, 'w', encoding='utf-8').write(s)
+print('inline-su-fix: %s name-match fixed (%d)' % (p.split('/')[-1], n))
+PYNAME
+done
+
 # ---------- 2) FinaSU sucompat.c（Tracepoint 路径，Inline 模式不编译但保留兼容） ----------
 if [ ! -f "$SUC" ]; then
     echo "inline-su-fix: sucompat.c not found (skip FinaSU-side fix)"
