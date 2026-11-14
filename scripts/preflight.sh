@@ -467,7 +467,10 @@ chk "rules.c status_update guarded"       "grep -q 'ksu54_status_guard' '$SUDIR/
 chk "rules.c AVC reset seqno pinned"      "grep -q 'ksu54_reset_seqno' '$SUDIR/selinux/rules.c' || ! grep -q 'reset_avc_cache(pol->latest_granting)' '$SUDIR/selinux/rules.c'"
 
 if [ "${DISABLE_PREINIT:-false}" = "true" ]; then
-  chk "preinit disabled (stub + objs removed)" "grep -q 'ksu54_preinit_off.o' '$SUDIR/Kbuild' && ! grep -q 'preinit/preinit\.o' '$SUDIR/Kbuild'"
+  # 现行逻辑（bd8f1de4）：preinit 照常编译，符号必须存在（SUSFS 直调需要），
+  # 运行时开关由 workflow 的 Build kernel 步骤改成 ksu_preinit_enabled = false。
+  # 因此这里只确认没有残留的旧 stub（旧逻辑会摘对象补 ksu54_preinit_off.o）。
+  chk "preinit kept compiled (runtime switch handled by workflow)" "! grep -q 'ksu54_preinit_off' '$SUDIR/Kbuild'"
 fi
 
 if [ "${DISABLE_SUSFS:-false}" = "true" ]; then
