@@ -94,6 +94,13 @@ jobs:
           DISABLE_SUSFS="${{ inputs.disable_susfs || 'false' }}" \
             bash ci/scripts/preflight.sh "$PWD/kernel"
 
+      # 修复 Inline 后端下 umounted/no_su 标记进程（adb shell 等）无法 su 的问题：
+      # fs/exec.c 直调把 sucompat 重定向整体跳过 + sucompat 的 no_su 早退不豁免已授权 UID。
+      - name: Inline su fix (umounted/no_su must not block su)
+        run: |
+          chmod +x ci/scripts/inline-su-fix.sh
+          bash ci/scripts/inline-su-fix.sh "$PWD/kernel"
+
       # ksud 不在时把 su 变成 /system/bin/sh（SukiSU 同款拦不住 root）。
       - name: Fallback su -> /system/bin/sh when ksud missing
         run: |
