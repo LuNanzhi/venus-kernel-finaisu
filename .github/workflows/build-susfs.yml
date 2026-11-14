@@ -279,14 +279,23 @@ jobs:
           bash ../ci/scripts/power-tune.sh "$PWD"
           make -j$(nproc) O=out olddefconfig
           bash ../ci/scripts/power-tune.sh "$PWD" verify
-          # FinaSU preinit runner 需要 $(objtree)/usr/include；缺了会静默关闭
-          # preinit（SUSFS Inline 还会连带丢掉 preinit 直调路径）。
-          make -j$(nproc) O=out headers_install
-          if [ -d out/usr/include ]; then
-            echo "preinit headers: out/usr/include OK ($(ls out/usr/include | wc -l) entries)"
+          # preinit 是否参与编译由 workflow 输入决定：
+          # - disable_preinit=false：装 UAPI 头并强制 KSU_REQUIRE_PREINIT=1（缺头即构建失败）
+          # - disable_preinit=true：跳过 preinit（官方说明普通模块/Inline 仍可用，
+          #   仅缺 initrc/*.rc 与部分早期同步），不再要求 UAPI 头
+          PREINIT_ARG=""
+          if [ "${{ inputs.disable_preinit || 'false' }}" = "true" ]; then
+            echo "preinit: disabled by input, headers_install gate skipped"
           else
-            echo "::error::headers_install did not produce out/usr/include; preinit would be disabled"
-            exit 1
+            PREINIT_ARG="KSU_REQUIRE_PREINIT=1"
+            # FinaSU preinit runner 需要 $(objtree)/usr/include；缺了会静默关闭 preinit
+            make -j$(nproc) O=out headers_install
+            if [ -d out/usr/include ]; then
+              echo "preinit headers: out/usr/include OK ($(ls out/usr/include | wc -l) entries)"
+            else
+              echo "::error::headers_install did not produce out/usr/include; preinit would be disabled"
+              exit 1
+            fi
           fi
 
           # 与门禁同理：先确保 flask.h 已生成，避免与 selinux 目录构建竞态
@@ -331,7 +340,7 @@ jobs:
           # D1 修补：不传 KSU_SECOND_SIGNATURE_RELEASE=1 时，
           # FINASU_TRUSTED_* 回落到 slot1（KSU 官方签名），slot2 白注入。
           make -j$(nproc) O=out LOCALVERSION="-$NEKO_VER" \
-            KSU_REQUIRE_PREINIT=1 \
+            $PREINIT_ARG \
             KSU_SECOND_SIGNATURE_RELEASE=1 \
             KSU_EXPECTED_SIZE2=716 \
             KSU_EXPECTED_HASH2=2d89b50aaf1db013c2b6738f973f48b62ea21a3a8d7216bfec3521065d448458 \
